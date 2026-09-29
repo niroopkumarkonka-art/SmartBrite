@@ -1,0 +1,6 @@
+{
+  "name": "Smart Canteen Demand, Order and Food Waste Management System",
+  "description": "Enterprise campus dining and cafeteria management platform with real-time digital ordering, IoT food waste analytics, predictive demand forecasting, and personalized nutritional recommendations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,21 @@
+.motion-logo {
+  font: 700 21px Outfit, sans-serif !important;
+  letter-spacing: -0.06em !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  text-decoration: none !important;
+  color: #f4f1ea !important;
+}
+.motion-logo > span:last-child > span {
+  color: #d4a373 !important;
+}
+.motion-logo-mark {
+  width: 29px !important;
+  height: 29px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 50% !important;
+  background: #d4a373 !important;
+  color: #1e3a2f !important;
+}
