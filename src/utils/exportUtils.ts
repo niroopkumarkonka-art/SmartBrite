@@ -58,19 +58,19 @@ export function downloadBlobFile(blob: Blob, filename: string) {
 /**
  * Exports comprehensive canteen demand, sales, inventory & food waste data into an Excel (.xlsx) workbook
  */
-export function exportToExcel(data: ExportDataPayload, filename = "SmartBite_Canteen_Report.xlsx") {
+export function exportToExcel(data: ExportDataPayload, filename = "SmartBrite_Canteen_Report.xlsx") {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Executive KPI Summary
   const summaryRows = [
-    ["SMARTBITE CAMPUS DINING - EXECUTIVE KPI SUMMARY"],
+    ["SMARTBRITE CAMPUS DINING - EXECUTIVE KPI SUMMARY"],
     ["Generated At", new Date().toLocaleString()],
     [],
     ["Metric", "Value", "Unit / Notes"],
-    ["Total Sales Revenue", data.summary?.total_revenue?.toFixed(2) || "0.00", "INR (₹)"],
+    ["Total Sales Revenue", (Number(data.summary?.total_revenue) || 0).toFixed(2), "INR (₹)"],
     ["Total Orders Completed", data.summary?.total_orders || 0, "Orders"],
     ["Total Food Leftovers", data.summary?.total_waste_kg || 0, "Kilograms (kg)"],
-    ["Raw Cost Loss from Waste", data.summary?.total_cost_loss?.toFixed(2) || "0.00", "INR (₹)"],
+    ["Raw Cost Loss from Waste", (Number(data.summary?.total_cost_loss) || 0).toFixed(2), "INR (₹)"],
     ["Greenhouse Gas Prevented", data.summary?.total_co2_kg || 0, "kg CO2 Equivalent"],
     ["Landfill Waste Diversion", `${data.summary?.organic_waste_diverted_pct || 0}%`, "Composted / Repurposed"],
     ["Dishes Low in Stock", data.summary?.low_stock_items || 0, "Dishes needing replenishment"],
@@ -80,81 +80,48 @@ export function exportToExcel(data: ExportDataPayload, filename = "SmartBite_Can
   XLSX.utils.book_append_sheet(wb, summaryWs, "KPI Summary");
 
   // Sheet 2: Menu & Stock
-  const menuRows = data.menuItems.map((item) => ({
-    "Item ID": item._id,
-    "Item Name": item.name,
-    "Category": item.category,
-    "Price (INR ₹)": item.price,
-    "Available Stock": item.stock_qty,
-    "Prep Time (mins)": item.prep_time_minutes,
-    "Calories (kcal)": item.calories,
-    "Protein (g)": item.protein_g,
-    "Carbs (g)": item.carbs_g,
-    "Fat (g)": item.fat_g,
-    "Dietary Tags": item.dietary_tags.join(", "),
+  const menuRows = (data.menuItems || []).map((item) => ({
+    "Item ID": item._id || "menu_item",
+    "Item Name": item.name || "Dish",
+    "Category": item.category || "General",
+    "Price (INR ₹)": item.price || 0,
+    "Available Stock": item.stock_qty || 0,
+    "Prep Time (mins)": item.prep_time_minutes || 0,
+    "Calories (kcal)": item.calories || 0,
+    "Protein (g)": item.protein_g || 0,
+    "Carbs (g)": item.carbs_g || 0,
+    "Fat (g)": item.fat_g || 0,
+    "Dietary Tags": Array.isArray(item.dietary_tags) ? item.dietary_tags.join(", ") : "",
   }));
-  const menuWs = XLSX.utils.json_to_sheet(menuRows);
-  menuWs["!cols"] = [
-    { wch: 12 },
-    { wch: 32 },
-    { wch: 16 },
-    { wch: 10 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 30 },
-  ];
+  const menuWs = XLSX.utils.json_to_sheet(menuRows.length > 0 ? menuRows : [{ "Item Name": "No menu items" }]);
   XLSX.utils.book_append_sheet(wb, menuWs, "Menu & Inventory");
 
   // Sheet 3: Orders List
-  const orderRows = data.orders.map((o) => ({
-    "Order Token": o.token_number,
-    "Customer": o.user_name || "Guest Student",
-    "Status": o.status.toUpperCase(),
-    "Items Ordered": o.items.map((i) => `${i.name} (x${i.qty})`).join("; "),
-    "Total Price (INR ₹)": o.total_amount.toFixed(2),
-    "Payment Method": o.payment_method,
-    "Order Date/Time": new Date(o.created_at).toLocaleString(),
+  const orderRows = (data.orders || []).map((o) => ({
+    "Order Token": o.token_number || (o._id ? o._id.slice(-4) : "SB-01"),
+    "Customer": o.user_name || "Campus Student",
+    "Status": (o.status || "placed").toUpperCase(),
+    "Items Ordered": Array.isArray(o.items) ? o.items.map((i) => `${i.name || "Meal"} (x${i.qty || 1})`).join("; ") : "",
+    "Total Price (INR ₹)": (Number(o.total_amount) || 0).toFixed(2),
+    "Payment Method": o.payment_method || "Campus Card",
+    "Order Date/Time": o.created_at ? new Date(o.created_at).toLocaleString() : new Date().toLocaleString(),
   }));
-  const ordersWs = XLSX.utils.json_to_sheet(orderRows);
-  ordersWs["!cols"] = [
-    { wch: 14 },
-    { wch: 20 },
-    { wch: 14 },
-    { wch: 45 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 22 },
-  ];
+  const ordersWs = XLSX.utils.json_to_sheet(orderRows.length > 0 ? orderRows : [{ "Order Token": "No orders yet" }]);
   XLSX.utils.book_append_sheet(wb, ordersWs, "Orders History");
 
   // Sheet 4: Waste Records Log
-  const wasteRows = data.wasteRecords.map((w) => ({
-    "Log ID": w._id,
+  const wasteRows = (data.wasteRecords || []).map((w) => ({
+    "Log ID": w._id || "wst_log",
     "Dish Name": w.item_name || "Canteen Item",
-    "Leftover (kg)": w.weight_kg ? w.weight_kg.toFixed(2) : "0.00",
-    "Portions Wasted": w.wasted_qty,
-    "Reason": w.reason.replace("_", " "),
+    "Leftover (kg)": (Number(w.weight_kg) || 0).toFixed(2),
+    "Portions Wasted": w.wasted_qty || 0,
+    "Reason": (w.reason || "general_waste").replace(/_/g, " "),
     "Station": w.station || "Kitchen Prep",
-    "Cost Loss (INR ₹)": w.estimated_cost_loss ? w.estimated_cost_loss.toFixed(2) : "0.00",
-    "CO2 Impact (kg)": w.co2_kg ? w.co2_kg.toFixed(2) : "0.00",
+    "Cost Loss (INR ₹)": (Number(w.estimated_cost_loss) || 0).toFixed(2),
+    "CO2 Impact (kg)": (Number(w.co2_kg) || 0).toFixed(2),
     "Date": w.date || new Date().toISOString().slice(0, 10),
   }));
-  const wasteWs = XLSX.utils.json_to_sheet(wasteRows);
-  wasteWs["!cols"] = [
-    { wch: 14 },
-    { wch: 30 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 18 },
-    { wch: 22 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 16 },
-  ];
+  const wasteWs = XLSX.utils.json_to_sheet(wasteRows.length > 0 ? wasteRows : [{ "Log ID": "No waste records" }]);
   XLSX.utils.book_append_sheet(wb, wasteWs, "Waste Log");
 
   // Sheet 5: Meal Prep Predictions (if available)
@@ -169,15 +136,6 @@ export function exportToExcel(data: ExportDataPayload, filename = "SmartBite_Can
       "Preparation Notes": p.reason,
     }));
     const prepWs = XLSX.utils.json_to_sheet(prepRows);
-    prepWs["!cols"] = [
-      { wch: 32 },
-      { wch: 16 },
-      { wch: 24 },
-      { wch: 20 },
-      { wch: 26 },
-      { wch: 20 },
-      { wch: 45 },
-    ];
     XLSX.utils.book_append_sheet(wb, prepWs, "Tomorrow Prep Plan");
   }
 
@@ -242,22 +200,22 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
   const metrics = [
     {
       label: "Total Sales",
-      val: `Rs. ${data.summary ? data.summary.total_revenue.toFixed(2) : "0.00"}`,
-      sub: `${data.summary ? data.summary.total_orders : 0} orders`,
+      val: `Rs. ${(Number(data.summary?.total_revenue) || 0).toFixed(2)}`,
+      sub: `${data.summary?.total_orders || 0} orders`,
     },
     {
       label: "Food Waste Logged",
-      val: `${data.summary ? data.summary.total_waste_kg : 0} kg`,
-      sub: `Rs. ${data.summary ? data.summary.total_cost_loss.toFixed(2) : "0.00"} loss`,
+      val: `${data.summary?.total_waste_kg || 0} kg`,
+      sub: `Rs. ${(Number(data.summary?.total_cost_loss) || 0).toFixed(2)} loss`,
     },
     {
       label: "Waste Diverted",
-      val: `${data.summary ? data.summary.organic_waste_diverted_pct : 0}%`,
-      sub: `${data.summary ? data.summary.total_co2_kg : 0} kg CO2 saved`,
+      val: `${data.summary?.organic_waste_diverted_pct || 0}%`,
+      sub: `${data.summary?.total_co2_kg || 0} kg CO2 saved`,
     },
     {
       label: "Dishes Low Stock",
-      val: `${data.summary ? data.summary.low_stock_items : 0}`,
+      val: `${data.summary?.low_stock_items || 0}`,
       sub: "Needs kitchen restock",
     },
   ];
@@ -292,21 +250,30 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
   doc.setFontSize(11);
   doc.text("Top Selling Dishes (Student Demand)", 40, curY);
 
-  const demandTableData = (data.demandData && data.demandData.length > 0)
-    ? data.demandData.slice(0, 6).map((d, i) => [
-        `#${i + 1}`,
-        d._id,
-        d.total_qty_ordered.toString(),
-        `Rs. ${d.total_revenue.toFixed(2)}`,
-        `Rs. ${d.total_qty_ordered > 0 ? (d.total_revenue / d.total_qty_ordered).toFixed(2) : "0.00"}`,
-      ])
-    : data.menuItems.slice(0, 6).map((m, i) => [
-        `#${i + 1}`,
-        m.name,
-        (15 - i * 2).toString(),
-        `Rs. ${((15 - i * 2) * m.price).toFixed(2)}`,
-        `Rs. ${m.price.toFixed(2)}`,
-      ]);
+  const safeDemand = Array.isArray(data.demandData) ? data.demandData : [];
+  const safeMenu = Array.isArray(data.menuItems) ? data.menuItems : [];
+  const demandTableData = safeDemand.length > 0
+    ? safeDemand.slice(0, 6).map((d, i) => {
+        const qty = Number(d.total_qty_ordered) || 0;
+        const rev = Number(d.total_revenue) || 0;
+        return [
+          `#${i + 1}`,
+          d._id || "Dish",
+          qty.toString(),
+          `Rs. ${rev.toFixed(2)}`,
+          `Rs. ${(qty > 0 ? rev / qty : 0).toFixed(2)}`,
+        ];
+      })
+    : safeMenu.slice(0, 6).map((m, i) => {
+        const p = Number(m.price) || 0;
+        return [
+          `#${i + 1}`,
+          m.name || "Dish",
+          (15 - i * 2).toString(),
+          `Rs. ${((15 - i * 2) * p).toFixed(2)}`,
+          `Rs. ${p.toFixed(2)}`,
+        ];
+      });
 
   autoTable(doc, {
     startY: curY + 6,
@@ -336,14 +303,19 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
   doc.setFontSize(11);
   doc.text("Kitchen Leftovers & Waste Prevention Log", 40, curY);
 
-  const wasteTableData = (data.wasteData && data.wasteData.length > 0)
-    ? data.wasteData.slice(0, 5).map((w) => [
-        w.item_name,
-        w.reason.replace("_", " "),
-        `${w.total_wasted} portions`,
-        `Rs. ${(w.cost_loss || w.total_wasted * 60).toFixed(2)}`,
-        `${((w.total_weight_kg || w.total_wasted * 0.28)).toFixed(1)} kg`,
-      ])
+  const safeWaste = Array.isArray(data.wasteData) ? data.wasteData : [];
+  const wasteTableData = safeWaste.length > 0
+    ? safeWaste.slice(0, 5).map((w) => {
+        const cost = Number(w.cost_loss) || (Number(w.total_wasted) || 0) * 60;
+        const wt = Number(w.total_weight_kg) || (Number(w.total_wasted) || 0) * 0.28;
+        return [
+          w.item_name || "Dish",
+          (w.reason || "general_waste").replace(/_/g, " "),
+          `${w.total_wasted || 0} portions`,
+          `Rs. ${cost.toFixed(2)}`,
+          `${wt.toFixed(1)} kg`,
+        ];
+      })
     : [
         ["Teriyaki Glazed Salmon Bowl", "overproduction", "4 portions", "Rs. 320.00", "2.5 kg"],
         ["Artisan Avocado & Poached Egg", "plate_scrapings", "3 portions", "Rs. 210.00", "1.8 kg"],
