@@ -225,13 +225,17 @@ export const FALLBACK_MENU_ITEMS: MenuItem[] = [
 ];
 
 export const FALLBACK_SUMMARY: AnalyticsSummary = {
-  total_revenue: 1820.00,
   total_orders: 5,
+  total_menu_items: 44,
+  low_stock_items: 1,
+  total_waste_units: 11,
   total_waste_kg: 4.8,
   total_cost_loss: 310.50,
   total_co2_kg: 9.6,
+  pending_orders: 1,
+  total_revenue: 1820.00,
+  average_wait_time_minutes: 7.4,
   organic_waste_diverted_pct: 78.4,
-  low_stock_items: 1,
 };
 
 export const FALLBACK_ORDERS: Order[] = [
@@ -267,12 +271,12 @@ export const FALLBACK_ORDERS: Order[] = [
 ];
 
 export const FALLBACK_DEMAND: DemandAnalyticsItem[] = [
-  { name: "Hyderabadi Chicken Dum Biryani", count: 2, revenue: 520 },
-  { name: "Char-Grilled Herb Chicken Breast", count: 2, revenue: 440 },
-  { name: "Traditional South Indian Deluxe Meal Thali", count: 1, revenue: 190 },
+  { _id: "Hyderabadi Chicken Dum Biryani", total_qty_ordered: 2, total_revenue: 520, order_count: 2 },
+  { _id: "Char-Grilled Herb Chicken Breast", total_qty_ordered: 2, total_revenue: 440, order_count: 2 },
+  { _id: "Traditional South Indian Deluxe Meal Thali", total_qty_ordered: 1, total_revenue: 190, order_count: 1 },
 ];
 
 export const FALLBACK_WASTE: WasteAnalyticsItem[] = [
-  { reason: "overproduction", total_wasted: 6, total_weight_kg: 2.1, cost_loss: 132 },
-  { reason: "prep_trimmings", total_wasted: 5, total_weight_kg: 1.8, cost_loss: 98 },
+  { menu_item_id: "menu_001", item_name: "Kitchen Prep Excess", reason: "overproduction", total_wasted: 6, total_weight_kg: 2.1, cost_loss: 132 },
+  { menu_item_id: "menu_002", item_name: "Fresh Salad Trimmings", reason: "prep_trimmings", total_wasted: 5, total_weight_kg: 1.8, cost_loss: 98 },
 ];

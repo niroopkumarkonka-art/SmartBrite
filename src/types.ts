@@ -45,7 +45,7 @@ export interface Order {
   items: OrderItem[];
   total_amount: number;
   status: "placed" | "preparing" | "ready" | "completed" | "cancelled";
-  payment_method: "Campus Card" | "Apple Pay" | "Credit Card" | "Cash on Pickup";
+  payment_method: "Campus Card" | "Apple Pay" | "Credit Card" | "Cash on Pickup" | "UPI / QR Code" | "UPI QR";
   created_at: string;
   pickup_time_est?: string;
 }
