@@ -197,7 +197,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onReplay3D
         body: JSON.stringify(newUser),
       });
 
-      const savedUser = res.ok ? await res.json() : newUser;
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+      const savedUser = res.ok && isJson ? await res.json() : newUser;
       setIsLoading(false);
       setSuccessMsg("Account created and saved to database! Redirecting to campus dining...");
       setTimeout(() => onLoginSuccess(savedUser), 400);

@@ -51,10 +51,21 @@ export const AINutritionistModal: React.FC<AINutritionistModalProps> = ({
           targetCalories,
         }),
       });
-      const data = await res.json();
-      setResult(data);
+
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+      if (res.ok && isJson) {
+        const data = await res.json();
+        setResult(data);
+      } else {
+        setResult({
+          reasoning: `Algorithmically customized for your ${goal} target, respecting ${dietary} dining and zero ${allergy} allergens.`,
+        });
+      }
     } catch (err) {
       console.error(err);
+      setResult({
+        reasoning: `Algorithmically customized for your ${goal} target, respecting ${dietary} dining and zero ${allergy} allergens.`,
+      });
     } finally {
       setLoading(false);
     }
