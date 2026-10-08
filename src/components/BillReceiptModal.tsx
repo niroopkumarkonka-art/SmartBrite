@@ -19,6 +19,7 @@ import {
   Copy,
 } from "lucide-react";
 import { Order } from "../types";
+import { exportBillToPDF } from "../utils/exportUtils";
 
 interface BillReceiptModalProps {
   order: Order | null;
@@ -48,6 +49,10 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     window.print();
   };
 
+  const handleDownloadPdf = () => {
+    exportBillToPDF(order);
+  };
+
   const handleCopyUpi = () => {
     navigator.clipboard?.writeText("9390962020@fam");
     setCopiedUpi(true);
@@ -58,20 +63,56 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     if (e) e.preventDefault();
     if (!recipientEmail.trim()) return;
     setEmailStatus("sending");
+
+    // Automatically generate and download the PDF invoice
+    exportBillToPDF(order);
+
+    // Open prefilled email draft with itemized receipt
+    const itemsText = (order.items || []).map((i) => `• ${i.name} (Qty: ${i.qty}) - ₹${i.subtotal.toFixed(2)}`).join("\n");
+    const subject = encodeURIComponent(`SmartBrite Campus Dining Bill - Pickup Token #${order.token_number}`);
+    const body = encodeURIComponent(
+      `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
+      `Pickup Token: #${order.token_number}\n` +
+      `Customer Name: ${order.user_name || "Campus Diner"}\n` +
+      `Date: ${new Date(order.created_at).toLocaleString("en-IN")}\n` +
+      `Estimated Pickup: ~6-10 mins\n\n` +
+      `Order Items:\n${itemsText}\n\n` +
+      `Total Amount: ₹${order.total_amount.toFixed(2)}\n` +
+      `Payment Method: ${order.payment_method} (Verified)\n\n` +
+      `Thank you for dining with SmartBrite! Zero Food Waste Certified.`
+    );
+
+    window.open(`mailto:${recipientEmail.trim()}?subject=${subject}&body=${body}`, "_blank");
+
     setTimeout(() => {
       setEmailStatus("sent");
       setTimeout(() => setEmailStatus("idle"), 4000);
-    }, 800);
+    }, 600);
   };
 
   const handleSendSms = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!recipientPhone.trim()) return;
     setSmsStatus("sending");
+
+    const phoneClean = recipientPhone.replace(/\D/g, "");
+    const itemsText = (order.items || []).map((i) => `• ${i.name} (x${i.qty}) - ₹${i.subtotal.toFixed(2)}`).join("%0A");
+    const whatsappMsg = 
+      `🧾 *SmartBrite Campus Dining - Official Bill*%0A%0A` +
+      `*Pickup Token:* %23${order.token_number}%0A` +
+      `*Customer:* ${order.user_name || "Campus Diner"}%0A` +
+      `*Status:* Paid via ${order.payment_method}%0A%0A` +
+      `*Items Ordered:*%0A${itemsText}%0A%0A` +
+      `*Grand Total:* ₹${order.total_amount.toFixed(2)}%0A` +
+      `*Estimated Pickup:* ~6-10 mins%0A%0A` +
+      `_SmartBrite Zero Waste Campus Canteen_`;
+
+    window.open(`https://api.whatsapp.com/send?phone=91${phoneClean}&text=${whatsappMsg}`, "_blank");
+
     setTimeout(() => {
       setSmsStatus("sent");
-      setTimeout(() => setSmsStatus("idle"), 800);
-    }, 800);
+      setTimeout(() => setSmsStatus("idle"), 4000);
+    }, 600);
   };
 
   const formattedDate = new Date(order.created_at).toLocaleDateString("en-IN", {
@@ -370,13 +411,21 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3 print:hidden">
+        <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-2.5 print:hidden">
+          <button
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2.5 text-xs font-bold text-emerald-800 transition shadow-xs cursor-pointer"
+            title="Download PDF Invoice file"
+          >
+            <Download className="h-3.5 w-3.5 text-emerald-600" />
+            <span>Download PDF</span>
+          </button>
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-xs cursor-pointer"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
-            <span>Print Bill</span>
+            <span>Print</span>
           </button>
           <button
             onClick={onClose}

@@ -428,3 +428,96 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
   const blob = new Blob([pdfBlob], { type: "application/pdf" });
   downloadBlobFile(blob, filename);
 }
+
+/**
+ * Exports an individual order tax invoice / bill to PDF with itemized receipt breakdown
+ */
+export function exportBillToPDF(order: Order, filename?: string) {
+  const doc = new jsPDF();
+  const pdfFilename = filename || `SmartBrite_Bill_${order.token_number || order._id}.pdf`;
+
+  // Header Banner
+  doc.setFillColor(16, 185, 129); // emerald-600
+  doc.rect(0, 0, 210, 36, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(20);
+  doc.text("SmartBrite Campus Dining", 14, 18);
+
+  doc.setFontSize(9.5);
+  doc.setFont("helvetica", "normal");
+  doc.text("Official Tax Invoice & Bill Receipt | Zero Food Waste Certified", 14, 28);
+
+  // Metadata block
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Pickup Token: #${order.token_number}`, 14, 46);
+  doc.text(`Status: Paid (${order.payment_method})`, 130, 46);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Customer: ${order.user_name || "Campus Diner"}`, 14, 53);
+  doc.text(`Date: ${new Date(order.created_at).toLocaleString("en-IN")}`, 14, 60);
+  doc.text(`Pickup Estimate: ~6-10 mins`, 130, 53);
+  doc.text(`Order Reference: ${order._id}`, 130, 60);
+
+  // Itemized line items
+  const tableRows = (order.items || []).map((item, idx) => [
+    idx + 1,
+    item.name,
+    `₹${item.unit_price.toFixed(2)}`,
+    item.qty,
+    `₹${item.subtotal.toFixed(2)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: 68,
+    head: [["#", "Item Description", "Unit Price", "Qty", "Total (INR)"]],
+    body: tableRows,
+    theme: "striped",
+    headStyles: {
+      fillColor: [16, 185, 129],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 9,
+    },
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 3.5,
+    },
+  });
+
+  // @ts-ignore
+  const finalY = (doc as any).lastAutoTable?.finalY || 130;
+
+  // Grand total summary box
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(120, finalY + 6, 76, 26, 3, 3, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Items Total: ₹${order.total_amount.toFixed(2)}`, 124, finalY + 14);
+  doc.text(`Campus GST (0%): ₹0.00`, 124, finalY + 20);
+
+  doc.setFontSize(13);
+  doc.setTextColor(16, 185, 129);
+  doc.text(`Grand Total: ₹${order.total_amount.toFixed(2)}`, 124, finalY + 28);
+
+  // Footer
+  doc.setTextColor(148, 163, 184);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text(
+    "Thank you for dining at SmartBrite! Please show your Token Number at the pickup counter.",
+    14,
+    finalY + 42
+  );
+
+  const pdfBlob = doc.output("blob");
+  const blob = new Blob([pdfBlob], { type: "application/pdf" });
+  downloadBlobFile(blob, pdfFilename);
+}
+
