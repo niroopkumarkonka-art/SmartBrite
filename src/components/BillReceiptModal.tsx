@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   X,
   Receipt,
@@ -40,6 +40,7 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
   const [recipientPhone, setRecipientPhone] = useState(defaultPhone);
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [smsStatus, setSmsStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [copiedReceipt, setCopiedReceipt] = useState(false);
   const [showFamXQr, setShowFamXQr] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
@@ -59,62 +60,6 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  const handleSendEmail = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!recipientEmail.trim()) return;
-    setEmailStatus("sending");
-
-    // Automatically generate and download the PDF invoice
-    exportBillToPDF(order);
-
-    // Open prefilled email draft with itemized receipt
-    const itemsText = (order.items || []).map((i) => `• ${i.name} (Qty: ${i.qty}) - ₹${i.subtotal.toFixed(2)}`).join("\n");
-    const subject = encodeURIComponent(`SmartBrite Campus Dining Bill - Pickup Token #${order.token_number}`);
-    const body = encodeURIComponent(
-      `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
-      `Pickup Token: #${order.token_number}\n` +
-      `Customer Name: ${order.user_name || "Campus Diner"}\n` +
-      `Date: ${new Date(order.created_at).toLocaleString("en-IN")}\n` +
-      `Estimated Pickup: ~6-10 mins\n\n` +
-      `Order Items:\n${itemsText}\n\n` +
-      `Total Amount: ₹${order.total_amount.toFixed(2)}\n` +
-      `Payment Method: ${order.payment_method} (Verified)\n\n` +
-      `Thank you for dining with SmartBrite! Zero Food Waste Certified.`
-    );
-
-    window.open(`mailto:${recipientEmail.trim()}?subject=${subject}&body=${body}`, "_blank");
-
-    setTimeout(() => {
-      setEmailStatus("sent");
-      setTimeout(() => setEmailStatus("idle"), 4000);
-    }, 600);
-  };
-
-  const handleSendSms = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!recipientPhone.trim()) return;
-    setSmsStatus("sending");
-
-    const phoneClean = recipientPhone.replace(/\D/g, "");
-    const itemsText = (order.items || []).map((i) => `• ${i.name} (x${i.qty}) - ₹${i.subtotal.toFixed(2)}`).join("%0A");
-    const whatsappMsg = 
-      `🧾 *SmartBrite Campus Dining - Official Bill*%0A%0A` +
-      `*Pickup Token:* %23${order.token_number}%0A` +
-      `*Customer:* ${order.user_name || "Campus Diner"}%0A` +
-      `*Status:* Paid via ${order.payment_method}%0A%0A` +
-      `*Items Ordered:*%0A${itemsText}%0A%0A` +
-      `*Grand Total:* ₹${order.total_amount.toFixed(2)}%0A` +
-      `*Estimated Pickup:* ~6-10 mins%0A%0A` +
-      `_SmartBrite Zero Waste Campus Canteen_`;
-
-    window.open(`https://api.whatsapp.com/send?phone=91${phoneClean}&text=${whatsappMsg}`, "_blank");
-
-    setTimeout(() => {
-      setSmsStatus("sent");
-      setTimeout(() => setSmsStatus("idle"), 4000);
-    }, 600);
-  };
-
   const formattedDate = new Date(order.created_at).toLocaleDateString("en-IN", {
     weekday: "short",
     year: "numeric",
@@ -126,6 +71,93 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  // Items text representation
+  const itemsText = (order.items || [])
+    .map((i) => `• ${i.name} (x${i.qty}) - ₹${i.subtotal.toFixed(2)}`)
+    .join("\n");
+
+  // Copy full receipt text to clipboard
+  const handleCopyReceiptText = () => {
+    const text =
+      `🧾 SmartBrite Campus Dining - Official Bill\n\n` +
+      `Pickup Token: #${order.token_number}\n` +
+      `Customer: ${order.user_name || "Campus Diner"}\n` +
+      `Date: ${formattedDate} at ${formattedTime}\n` +
+      `Status: Paid via ${order.payment_method}\n\n` +
+      `Items Ordered:\n${itemsText}\n\n` +
+      `Grand Total: ₹${order.total_amount.toFixed(2)}\n` +
+      `Estimated Pickup: ~6-10 mins\n\n` +
+      `SmartBrite Zero Waste Campus Canteen`;
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedReceipt(true);
+      setTimeout(() => setCopiedReceipt(false), 2500);
+    }
+  };
+
+  // WhatsApp prefilled message and direct URL (compatible with Mobile app & Web)
+  const whatsappUrl = useMemo(() => {
+    let clean = recipientPhone.replace(/\D/g, "");
+    if (clean.length === 10) clean = "91" + clean;
+    else if (clean.startsWith("0")) clean = "91" + clean.slice(1);
+    else if (!clean.startsWith("91") && clean.length > 5) clean = "91" + clean;
+    if (!clean) clean = "919390962020";
+
+    const msg =
+      `🧾 *SmartBrite Campus Dining - Official Bill*\n\n` +
+      `*Pickup Token:* #${order.token_number}\n` +
+      `*Customer:* ${order.user_name || "Campus Diner"}\n` +
+      `*Date:* ${formattedDate} at ${formattedTime}\n` +
+      `*Status:* Paid via ${order.payment_method}\n\n` +
+      `*Items Ordered:*\n${itemsText}\n\n` +
+      `*Grand Total:* ₹${order.total_amount.toFixed(2)}\n` +
+      `*Estimated Pickup:* ~6-10 mins\n\n` +
+      `_SmartBrite Zero Waste Campus Canteen_`;
+
+    return `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;
+  }, [recipientPhone, order, formattedDate, formattedTime, itemsText]);
+
+  // Email subject, body and mailto URL
+  const emailUrl = useMemo(() => {
+    const subject = `SmartBrite Campus Dining Bill - Pickup Token #${order.token_number}`;
+    const body =
+      `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
+      `Pickup Token: #${order.token_number}\n` +
+      `Customer Name: ${order.user_name || "Campus Diner"}\n` +
+      `Date: ${formattedDate} at ${formattedTime}\n` +
+      `Estimated Pickup: ~6-10 mins\n\n` +
+      `Order Items:\n${itemsText}\n\n` +
+      `Total Amount: ₹${order.total_amount.toFixed(2)}\n` +
+      `Payment Method: ${order.payment_method} (Verified)\n\n` +
+      `Thank you for dining with SmartBrite! Zero Food Waste Certified.`;
+
+    return `mailto:${recipientEmail.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }, [recipientEmail, order, formattedDate, formattedTime, itemsText]);
+
+  const handleSendEmail = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!recipientEmail.trim()) return;
+    setEmailStatus("sending");
+    exportBillToPDF(order);
+    window.location.href = emailUrl;
+    setTimeout(() => {
+      setEmailStatus("sent");
+      setTimeout(() => setEmailStatus("idle"), 4000);
+    }, 600);
+  };
+
+  const handleSendSms = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!recipientPhone.trim()) return;
+    setSmsStatus("sending");
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    setTimeout(() => {
+      setSmsStatus("sent");
+      setTimeout(() => setSmsStatus("idle"), 4000);
+    }, 600);
+  };
 
   const subtotal = order.total_amount;
   const finalTotal = subtotal;
@@ -327,11 +359,12 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
                     className="w-full rounded-xl border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleSendEmail()}
-                  disabled={emailStatus === "sending"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-60 shrink-0"
+                <a
+                  href={emailUrl}
+                  onClick={(e) => {
+                    handleSendEmail(e);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer shrink-0 no-underline"
                 >
                   {emailStatus === "sending" ? (
                     <span>Sending...</span>
@@ -346,7 +379,7 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
                       <span>Email Bill</span>
                     </>
                   )}
-                </button>
+                </a>
               </div>
               {emailStatus === "sent" && (
                 <p className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 pt-0.5">
@@ -370,33 +403,56 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
                     className="w-full rounded-xl border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleSendSms()}
-                  disabled={smsStatus === "sending"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-60 shrink-0"
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    setSmsStatus("sent");
+                    setTimeout(() => setSmsStatus("idle"), 4000);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer shrink-0 no-underline"
                 >
-                  {smsStatus === "sending" ? (
-                    <span>Sending...</span>
-                  ) : smsStatus === "sent" ? (
+                  {smsStatus === "sent" ? (
                     <>
-                      <Check className="h-3.5 w-3.5" />
-                      <span>Sent!</span>
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Opened!</span>
                     </>
                   ) : (
                     <>
-                      <Smartphone className="h-3.5 w-3.5" />
+                      <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
                       <span>WhatsApp Bill</span>
                     </>
                   )}
-                </button>
+                </a>
               </div>
               {smsStatus === "sent" && (
                 <p className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 pt-0.5">
                   <CheckCircle2 className="h-3 w-3" />
-                  <span>Pickup Token #{order.token_number} sent to +91 {recipientPhone} via WhatsApp & SMS</span>
+                  <span>Pickup Token #{order.token_number} opened for +91 {recipientPhone} via WhatsApp!</span>
                 </p>
               )}
+            </div>
+
+            {/* Copy full receipt text fallback button */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleCopyReceiptText}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-[11px] font-bold text-emerald-800 transition shadow-2xs cursor-pointer"
+              >
+                {copiedReceipt ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Copied Bill Receipt to Clipboard!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Copy Full Bill Receipt (For WhatsApp / SMS / Telegram)</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
