@@ -76,8 +76,25 @@ export default function App() {
   const [isAINutritionOpen, setIsAINutritionOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Sync all data from API
+  // Determine if running on static host (such as GitHub Pages) where no live Express backend runs
+  const isStaticDeployment = typeof window !== "undefined" && (
+    window.location.hostname.includes("github.io") ||
+    window.location.protocol === "file:"
+  );
+
+  // Sync all data from API (on localhost/server) or load seeded data (on GitHub Pages)
   const fetchData = useCallback(async () => {
+    if (isStaticDeployment) {
+      // On static GitHub Pages, load seed data directly with 0 network calls (no red 404 errors!)
+      setMenuItems(FALLBACK_MENU_ITEMS);
+      setOrders(FALLBACK_ORDERS);
+      setSummary(FALLBACK_SUMMARY);
+      setDemandData(FALLBACK_DEMAND);
+      setWasteData(FALLBACK_WASTE);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const [
         menuRes,
@@ -143,16 +160,18 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isStaticDeployment]);
 
   useEffect(() => {
     fetchData();
-    // Auto-poll every 12 seconds for kitchen and orders updates
-    const timer = setInterval(() => {
-      fetchData();
-    }, 12000);
-    return () => clearInterval(timer);
-  }, [fetchData]);
+    // Only auto-poll if running with a live backend (do not poll on static GitHub Pages to prevent repeated 404s)
+    if (!isStaticDeployment) {
+      const timer = setInterval(() => {
+        fetchData();
+      }, 12000);
+      return () => clearInterval(timer);
+    }
+  }, [fetchData, isStaticDeployment]);
 
   // Handle Tab Switch by User Role if changed
   const handleRoleChange = (role: "customer" | "staff" | "admin") => {

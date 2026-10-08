@@ -1,0 +1,14 @@
+[
+  {
+    "_id": "wst_01",
+    "menu_item_id": "menu_001",
+    "item_name": "Overproduction Excess",
+    "wasted_qty": 4,
+    "weight_kg": 1.4,
+    "reason": "overproduction",
+    "station": "Main Line",
+    "estimated_cost_loss": 88,
+    "co2_kg": 2.94,
+    "date": "2026-10-08T10:00:00.000Z"
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {
+    "_id": "ord_demo_01",
+    "token_number": "SB-0101",
+    "user_id": "usr_001",
+    "user_name": "Alex Rivera",
+    "items": [
+      { "menu_item_id": "menu_biryani_01", "name": "Hyderabadi Chicken Dum Biryani", "unit_price": 260, "qty": 1, "subtotal": 260 }
+    ],
+    "total_amount": 260,
+    "status": "completed",
+    "payment_method": "Campus Card",
+    "created_at": "2026-10-08T12:00:00.000Z"
+  }
+]

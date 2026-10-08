@@ -1,0 +1,13 @@
+{
+  "total_orders": 5,
+  "total_menu_items": 44,
+  "low_stock_items": 1,
+  "total_waste_units": 11,
+  "total_waste_kg": 4.8,
+  "total_cost_loss": 310.5,
+  "total_co2_kg": 9.6,
+  "pending_orders": 1,
+  "total_revenue": 1820.0,
+  "average_wait_time_minutes": 7.4,
+  "organic_waste_diverted_pct": 78.4
+}
