@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import {
   X,
   Receipt,
@@ -29,9 +29,15 @@ interface BillReceiptModalProps {
   defaultPhone?: string;
 }
 
-export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
+interface BillReceiptContentProps {
+  order: Order;
+  onClose: () => void;
+  defaultEmail?: string;
+  defaultPhone?: string;
+}
+
+const BillReceiptContent: React.FC<BillReceiptContentProps> = ({
   order,
-  isOpen,
   onClose,
   defaultEmail = "niroopkumarkonka@gmail.com",
   defaultPhone = "9390962020",
@@ -43,8 +49,6 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
   const [copiedReceipt, setCopiedReceipt] = useState(false);
   const [showFamXQr, setShowFamXQr] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
-
-  if (!isOpen || !order) return null;
 
   const handlePrint = () => {
     window.print();
@@ -110,47 +114,43 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
   };
 
   // WhatsApp prefilled message and direct URL (compatible with Mobile app & Web)
-  const whatsappUrl = useMemo(() => {
-    let clean = recipientPhone.replace(/\D/g, "");
-    if (clean.length === 10) clean = "91" + clean;
-    else if (clean.startsWith("0")) clean = "91" + clean.slice(1);
-    else if (!clean.startsWith("91") && clean.length > 5) clean = "91" + clean;
-    if (!clean) clean = "919390962020";
+  let cleanPhone = recipientPhone.replace(/\D/g, "");
+  if (cleanPhone.length === 10) cleanPhone = "91" + cleanPhone;
+  else if (cleanPhone.startsWith("0")) cleanPhone = "91" + cleanPhone.slice(1);
+  else if (!cleanPhone.startsWith("91") && cleanPhone.length > 5) cleanPhone = "91" + cleanPhone;
+  if (!cleanPhone) cleanPhone = "919390962020";
 
-    const msg =
-      `🧾 *SmartBrite Campus Dining - Official Bill*\n\n` +
-      `*Pickup Token:* #${tokenStr}\n` +
-      `*Customer:* ${order.user_name || "Campus Diner"}\n` +
-      `*Date:* ${formattedDate} at ${formattedTime}\n` +
-      `*Status:* Paid via ${order.payment_method || "Campus Card"}\n\n` +
-      `*Items Ordered:*\n${itemsText}\n\n` +
-      `*Grand Total:* ₹${finalTotal.toFixed(2)}\n` +
-      `*Estimated Pickup:* ~6-10 mins\n\n` +
-      `_SmartBrite Zero Waste Campus Canteen_`;
+  const whatsappMsg =
+    `🧾 *SmartBrite Campus Dining - Official Bill*\n\n` +
+    `*Pickup Token:* #${tokenStr}\n` +
+    `*Customer:* ${order?.user_name || "Campus Diner"}\n` +
+    `*Date:* ${formattedDate} at ${formattedTime}\n` +
+    `*Status:* Paid via ${order?.payment_method || "Campus Card"}\n\n` +
+    `*Items Ordered:*\n${itemsText}\n\n` +
+    `*Grand Total:* ₹${finalTotal.toFixed(2)}\n` +
+    `*Estimated Pickup:* ~6-10 mins\n\n` +
+    `_SmartBrite Zero Waste Campus Canteen_`;
 
-    return `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;
-  }, [recipientPhone, tokenStr, order.user_name, order.payment_method, formattedDate, formattedTime, itemsText, finalTotal]);
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(whatsappMsg)}`;
 
   // Email subject, body and mailto URL
-  const emailUrl = useMemo(() => {
-    const subject = `SmartBrite Campus Dining Bill - Pickup Token #${tokenStr}`;
-    const body =
-      `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
-      `Pickup Token: #${tokenStr}\n` +
-      `Customer Name: ${order.user_name || "Campus Diner"}\n` +
-      `Date: ${formattedDate} at ${formattedTime}\n` +
-      `Estimated Pickup: ~6-10 mins\n\n` +
-      `Order Items:\n${itemsText}\n\n` +
-      `Total Amount: ₹${finalTotal.toFixed(2)}\n` +
-      `Payment Method: ${order.payment_method || "Campus Card"} (Verified)\n\n` +
-      `Thank you for dining with SmartBrite! Zero Food Waste Certified.`;
+  const emailSubject = `SmartBrite Campus Dining Bill - Pickup Token #${tokenStr}`;
+  const emailBody =
+    `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
+    `Pickup Token: #${tokenStr}\n` +
+    `Customer Name: ${order?.user_name || "Campus Diner"}\n` +
+    `Date: ${formattedDate} at ${formattedTime}\n` +
+    `Estimated Pickup: ~6-10 mins\n\n` +
+    `Order Items:\n${itemsText}\n\n` +
+    `Total Amount: ₹${finalTotal.toFixed(2)}\n` +
+    `Payment Method: ${order?.payment_method || "Campus Card"} (Verified)\n\n` +
+    `Thank you for dining with SmartBrite! Zero Food Waste Certified.`;
 
-    return `mailto:${recipientEmail.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }, [recipientEmail, tokenStr, order.user_name, order.payment_method, formattedDate, formattedTime, itemsText, finalTotal]);
+  const emailUrl = `mailto:${recipientEmail.trim()}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   const handleSendEmail = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!recipientEmail.trim()) return;
+    if (!recipientEmail.trim() || !order) return;
     setEmailStatus("sending");
     exportBillToPDF(order);
     window.location.href = emailUrl;
@@ -507,5 +507,24 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
+  order,
+  isOpen,
+  onClose,
+  defaultEmail,
+  defaultPhone,
+}) => {
+  if (!isOpen || !order) return null;
+
+  return (
+    <BillReceiptContent
+      order={order}
+      onClose={onClose}
+      defaultEmail={defaultEmail}
+      defaultPhone={defaultPhone}
+    />
   );
 };
