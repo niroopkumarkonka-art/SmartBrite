@@ -60,33 +60,45 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  const formattedDate = new Date(order.created_at).toLocaleDateString("en-IN", {
+  const safeItems = Array.isArray(order.items) ? order.items : [];
+  const safeSubtotal = Number(order.total_amount) || safeItems.reduce((acc, i) => acc + (Number(i.subtotal) || (Number(i.unit_price) || 0) * (Number(i.qty) || 1)), 0);
+  const finalTotal = safeSubtotal;
+  const statusStr = (order.status || "placed").toUpperCase();
+  const tokenStr = order.token_number || (order._id ? order._id.slice(-4) : "SB-01");
+
+  const safeDate = order.created_at ? new Date(order.created_at) : new Date();
+  const formattedDate = !isNaN(safeDate.getTime()) ? safeDate.toLocaleDateString("en-IN", {
     weekday: "short",
     year: "numeric",
     month: "short",
     day: "numeric",
-  });
+  }) : new Date().toLocaleDateString("en-IN");
 
-  const formattedTime = new Date(order.created_at).toLocaleTimeString("en-IN", {
+  const formattedTime = !isNaN(safeDate.getTime()) ? safeDate.toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }) : new Date().toLocaleTimeString("en-IN");
 
-  // Items text representation
-  const itemsText = (order.items || [])
-    .map((i) => `• ${i.name} (x${i.qty}) - ₹${i.subtotal.toFixed(2)}`)
+  // Items text representation safely guarded
+  const itemsText = safeItems
+    .map((i) => {
+      const uPrice = Number(i.unit_price) || 0;
+      const q = Number(i.qty) || 1;
+      const sub = Number(i.subtotal) || (uPrice * q);
+      return `• ${i.name || "Item"} (x${q}) - ₹${sub.toFixed(2)}`;
+    })
     .join("\n");
 
   // Copy full receipt text to clipboard
   const handleCopyReceiptText = () => {
     const text =
       `🧾 SmartBrite Campus Dining - Official Bill\n\n` +
-      `Pickup Token: #${order.token_number}\n` +
+      `Pickup Token: #${tokenStr}\n` +
       `Customer: ${order.user_name || "Campus Diner"}\n` +
       `Date: ${formattedDate} at ${formattedTime}\n` +
-      `Status: Paid via ${order.payment_method}\n\n` +
+      `Status: Paid via ${order.payment_method || "Campus Card"}\n\n` +
       `Items Ordered:\n${itemsText}\n\n` +
-      `Grand Total: ₹${order.total_amount.toFixed(2)}\n` +
+      `Grand Total: ₹${finalTotal.toFixed(2)}\n` +
       `Estimated Pickup: ~6-10 mins\n\n` +
       `SmartBrite Zero Waste Campus Canteen`;
 
@@ -107,34 +119,34 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
 
     const msg =
       `🧾 *SmartBrite Campus Dining - Official Bill*\n\n` +
-      `*Pickup Token:* #${order.token_number}\n` +
+      `*Pickup Token:* #${tokenStr}\n` +
       `*Customer:* ${order.user_name || "Campus Diner"}\n` +
       `*Date:* ${formattedDate} at ${formattedTime}\n` +
-      `*Status:* Paid via ${order.payment_method}\n\n` +
+      `*Status:* Paid via ${order.payment_method || "Campus Card"}\n\n` +
       `*Items Ordered:*\n${itemsText}\n\n` +
-      `*Grand Total:* ₹${order.total_amount.toFixed(2)}\n` +
+      `*Grand Total:* ₹${finalTotal.toFixed(2)}\n` +
       `*Estimated Pickup:* ~6-10 mins\n\n` +
       `_SmartBrite Zero Waste Campus Canteen_`;
 
     return `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`;
-  }, [recipientPhone, order, formattedDate, formattedTime, itemsText]);
+  }, [recipientPhone, tokenStr, order.user_name, order.payment_method, formattedDate, formattedTime, itemsText, finalTotal]);
 
   // Email subject, body and mailto URL
   const emailUrl = useMemo(() => {
-    const subject = `SmartBrite Campus Dining Bill - Pickup Token #${order.token_number}`;
+    const subject = `SmartBrite Campus Dining Bill - Pickup Token #${tokenStr}`;
     const body =
       `SmartBrite Campus Dining - Official Tax Invoice & Bill Receipt\n\n` +
-      `Pickup Token: #${order.token_number}\n` +
+      `Pickup Token: #${tokenStr}\n` +
       `Customer Name: ${order.user_name || "Campus Diner"}\n` +
       `Date: ${formattedDate} at ${formattedTime}\n` +
       `Estimated Pickup: ~6-10 mins\n\n` +
       `Order Items:\n${itemsText}\n\n` +
-      `Total Amount: ₹${order.total_amount.toFixed(2)}\n` +
-      `Payment Method: ${order.payment_method} (Verified)\n\n` +
+      `Total Amount: ₹${finalTotal.toFixed(2)}\n` +
+      `Payment Method: ${order.payment_method || "Campus Card"} (Verified)\n\n` +
       `Thank you for dining with SmartBrite! Zero Food Waste Certified.`;
 
     return `mailto:${recipientEmail.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }, [recipientEmail, order, formattedDate, formattedTime, itemsText]);
+  }, [recipientEmail, tokenStr, order.user_name, order.payment_method, formattedDate, formattedTime, itemsText, finalTotal]);
 
   const handleSendEmail = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -159,8 +171,6 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
     }, 600);
   };
 
-  const subtotal = order.total_amount;
-  const finalTotal = subtotal;
   const upiId = "9390962020@fam";
 
   return (
@@ -194,11 +204,11 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
               KITCHEN PICKUP TOKEN
             </span>
             <div className="text-3xl sm:text-4xl font-black text-emerald-900 tracking-tight font-mono my-1">
-              {order.token_number}
+              {tokenStr}
             </div>
             <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-200/60 px-3 py-0.5 text-xs font-semibold text-emerald-800">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              <span>Order Status: {order.status.toUpperCase()}</span>
+              <span>Order Status: {statusStr}</span>
             </div>
           </div>
 
@@ -206,7 +216,7 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
           <div className="grid grid-cols-2 gap-3 text-xs text-slate-600 border-b border-slate-100 pb-4">
             <div className="space-y-0.5">
               <span className="text-[10px] uppercase font-bold text-slate-400">Order ID</span>
-              <p className="font-mono font-semibold text-slate-800 truncate">{order._id}</p>
+              <p className="font-mono font-semibold text-slate-800 truncate">{order._id || tokenStr}</p>
             </div>
             <div className="space-y-0.5">
               <span className="text-[10px] uppercase font-bold text-slate-400">Customer</span>
@@ -236,20 +246,25 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
             </div>
 
             <div className="space-y-2 max-h-44 overflow-y-auto pr-1 divide-y divide-slate-100/60">
-              {order.items.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs pt-1.5">
-                  <div className="max-w-[220px] truncate">
-                    <span className="font-semibold text-slate-800 block truncate">{item.name}</span>
-                    <span className="text-[10px] text-slate-400 font-mono">₹{item.unit_price} each</span>
+              {safeItems.map((item, idx) => {
+                const uPrice = Number(item.unit_price) || 0;
+                const q = Number(item.qty) || 1;
+                const sub = Number(item.subtotal) || (uPrice * q);
+                return (
+                  <div key={idx} className="flex items-center justify-between text-xs pt-1.5">
+                    <div className="max-w-[220px] truncate">
+                      <span className="font-semibold text-slate-800 block truncate">{item.name || "Campus Meal"}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">₹{uPrice.toFixed(2)} each</span>
+                    </div>
+                    <div className="flex items-center gap-8">
+                      <span className="font-mono text-slate-600 font-medium">x{q}</span>
+                      <span className="font-mono font-bold text-slate-900 w-14 text-right">
+                        ₹{sub.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-8">
-                    <span className="font-mono text-slate-600 font-medium">x{item.qty}</span>
-                    <span className="font-mono font-bold text-slate-900 w-14 text-right">
-                      ₹{item.subtotal || item.unit_price * item.qty}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -257,7 +272,7 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
           <div className="rounded-xl bg-slate-50 p-3.5 space-y-1.5 border border-slate-200/80 text-xs">
             <div className="flex justify-between text-slate-600">
               <span>Items Total:</span>
-              <span className="font-mono font-semibold text-slate-800">₹{subtotal.toFixed(2)}</span>
+              <span className="font-mono font-semibold text-slate-800">₹{safeSubtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-emerald-700">
               <span className="flex items-center gap-1">

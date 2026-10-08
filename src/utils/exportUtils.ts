@@ -433,8 +433,10 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
  * Exports an individual order tax invoice / bill to PDF with itemized receipt breakdown
  */
 export function exportBillToPDF(order: Order, filename?: string) {
+  if (!order) return;
   const doc = new jsPDF();
-  const pdfFilename = filename || `SmartBrite_Bill_${order.token_number || order._id}.pdf`;
+  const token = order.token_number || (order._id ? order._id.slice(-4) : "SB-01");
+  const pdfFilename = filename || `SmartBrite_Bill_${token}.pdf`;
 
   // Header Banner
   doc.setFillColor(16, 185, 129); // emerald-600
@@ -453,29 +455,39 @@ export function exportBillToPDF(order: Order, filename?: string) {
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
-  doc.text(`Pickup Token: #${order.token_number}`, 14, 46);
-  doc.text(`Status: Paid (${order.payment_method})`, 130, 46);
+  doc.text(`Pickup Token: #${token}`, 14, 46);
+  doc.text(`Status: Paid (${order.payment_method || "Campus Card"})`, 130, 46);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(`Customer: ${order.user_name || "Campus Diner"}`, 14, 53);
-  doc.text(`Date: ${new Date(order.created_at).toLocaleString("en-IN")}`, 14, 60);
+  const safeDate = order.created_at ? new Date(order.created_at) : new Date();
+  const dateStr = !isNaN(safeDate.getTime()) ? safeDate.toLocaleString("en-IN") : new Date().toLocaleString("en-IN");
+  doc.text(`Date: ${dateStr}`, 14, 60);
   doc.text(`Pickup Estimate: ~6-10 mins`, 130, 53);
-  doc.text(`Order Reference: ${order._id}`, 130, 60);
+  doc.text(`Order Reference: ${order._id || "ord_1"}`, 130, 60);
 
   // Itemized line items
-  const tableRows = (order.items || []).map((item, idx) => [
-    idx + 1,
-    item.name,
-    `₹${item.unit_price.toFixed(2)}`,
-    item.qty,
-    `₹${item.subtotal.toFixed(2)}`,
-  ]);
+  const safeItems = Array.isArray(order.items) ? order.items : [];
+  const tableRows = safeItems.map((item, idx) => {
+    const uPrice = Number(item.unit_price) || 0;
+    const q = Number(item.qty) || 1;
+    const sub = Number(item.subtotal) || (uPrice * q);
+    return [
+      idx + 1,
+      item.name || "Meal Dish",
+      `₹${uPrice.toFixed(2)}`,
+      q,
+      `₹${sub.toFixed(2)}`,
+    ];
+  });
+
+  const safeTotal = Number(order.total_amount) || safeItems.reduce((acc, i) => acc + (Number(i.subtotal) || (Number(i.unit_price) || 0) * (i.qty || 1)), 0);
 
   autoTable(doc, {
     startY: 68,
     head: [["#", "Item Description", "Unit Price", "Qty", "Total (INR)"]],
-    body: tableRows,
+    body: tableRows.length > 0 ? tableRows : [[1, "Campus Dining Order", `₹${safeTotal.toFixed(2)}`, 1, `₹${safeTotal.toFixed(2)}`]],
     theme: "striped",
     headStyles: {
       fillColor: [16, 185, 129],
@@ -499,12 +511,12 @@ export function exportBillToPDF(order: Order, filename?: string) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(`Items Total: ₹${order.total_amount.toFixed(2)}`, 124, finalY + 14);
+  doc.text(`Items Total: ₹${safeTotal.toFixed(2)}`, 124, finalY + 14);
   doc.text(`Campus GST (0%): ₹0.00`, 124, finalY + 20);
 
   doc.setFontSize(13);
   doc.setTextColor(16, 185, 129);
-  doc.text(`Grand Total: ₹${order.total_amount.toFixed(2)}`, 124, finalY + 28);
+  doc.text(`Grand Total: ₹${safeTotal.toFixed(2)}`, 124, finalY + 28);
 
   // Footer
   doc.setTextColor(148, 163, 184);

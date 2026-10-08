@@ -802,17 +802,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {/* Itemized Order Line Breakdown */}
                     <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-1.5">
                       <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                        Billed Items ({order.items.reduce((s, i) => s + i.qty, 0)} portions):
+                        Billed Items ({((order.items || []).reduce((s, i) => s + (i.qty || 1), 0))} portions):
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                        {order.items.map((line, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-slate-200">
-                            <span className="font-semibold text-slate-800 truncate mr-2">
-                              {line.qty}x {line.name}
-                            </span>
-                            <span className="font-bold text-slate-900 shrink-0">₹{line.subtotal.toFixed(2)}</span>
-                          </div>
-                        ))}
+                        {(order.items || []).map((line, idx) => {
+                          const subVal = Number(line.subtotal) || (Number(line.unit_price) || 0) * (line.qty || 1);
+                          return (
+                            <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-slate-200">
+                              <span className="font-semibold text-slate-800 truncate mr-2">
+                                {line.qty}x {line.name}
+                              </span>
+                              <span className="font-bold text-slate-900 shrink-0">₹{subVal.toFixed(2)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
