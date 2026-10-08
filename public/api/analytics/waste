@@ -1,4 +1,0 @@
-[
-  { "menu_item_id": "menu_001", "item_name": "Kitchen Prep Excess", "reason": "overproduction", "total_wasted": 6, "total_weight_kg": 2.1, "cost_loss": 132 },
-  { "menu_item_id": "menu_002", "item_name": "Fresh Salad Trimmings", "reason": "prep_trimmings", "total_wasted": 5, "total_weight_kg": 1.8, "cost_loss": 98 }
-]

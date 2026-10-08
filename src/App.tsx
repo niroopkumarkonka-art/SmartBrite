@@ -60,21 +60,30 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [show3DSplash, setShow3DSplash] = useState<boolean>(true);
 
-  // App data
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  // App data with persistent storage on static deployment
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(FALLBACK_MENU_ITEMS);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const stored = localStorage.getItem("smartbrite_campus_orders");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return FALLBACK_ORDERS;
+  });
   const [wasteRecords, setWasteRecords] = useState<WasteRecord[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
-  const [demandData, setDemandData] = useState<DemandAnalyticsItem[]>([]);
-  const [wasteData, setWasteData] = useState<WasteAnalyticsItem[]>([]);
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(FALLBACK_SUMMARY);
+  const [demandData, setDemandData] = useState<DemandAnalyticsItem[]>(FALLBACK_DEMAND);
+  const [wasteData, setWasteData] = useState<WasteAnalyticsItem[]>(FALLBACK_WASTE);
   const [revenueData, setRevenueData] = useState<RevenueAnalyticsItem[]>([]);
 
   // Cart & UI Modals
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [isAINutritionOpen, setIsAINutritionOpen] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Determine if running on static host (such as GitHub Pages) where no live Express backend runs
   const isStaticDeployment = typeof window !== "undefined" && (
@@ -85,9 +94,17 @@ export default function App() {
   // Sync all data from API (on localhost/server) or load seeded data (on GitHub Pages)
   const fetchData = useCallback(async () => {
     if (isStaticDeployment) {
-      // On static GitHub Pages, load seed data directly with 0 network calls (no red 404 errors!)
+      // On static GitHub Pages, load seed & local datastore with 0 network calls (no red 404/405 errors!)
       setMenuItems(FALLBACK_MENU_ITEMS);
-      setOrders(FALLBACK_ORDERS);
+      try {
+        const stored = localStorage.getItem("smartbrite_campus_orders");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setOrders(parsed);
+          }
+        }
+      } catch {}
       setSummary(FALLBACK_SUMMARY);
       setDemandData(FALLBACK_DEMAND);
       setWasteData(FALLBACK_WASTE);
@@ -214,26 +231,28 @@ export default function App() {
     items: { menu_item_id: string; qty: number }[],
     paymentMethod: string
   ): Promise<Order> => {
-    try {
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: currentUser ? currentUser._id : "u_demo_1",
-          userName: currentUser ? currentUser.name : "Alex Chen (CS Dept)",
-          items,
-          paymentMethod,
-        }),
-      });
+    if (!isStaticDeployment) {
+      try {
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: currentUser ? currentUser._id : "u_demo_1",
+            userName: currentUser ? currentUser.name : "Alex Chen (CS Dept)",
+            items,
+            paymentMethod,
+          }),
+        });
 
-      const isJson = res.headers.get("content-type")?.includes("application/json");
-      if (res.ok && isJson) {
-        const newOrder: Order = await res.json();
-        fetchData();
-        return newOrder;
+        const isJson = res.headers.get("content-type")?.includes("application/json");
+        if (res.ok && isJson) {
+          const newOrder: Order = await res.json();
+          fetchData();
+          return newOrder;
+        }
+      } catch (e) {
+        console.warn("Backend API unavailable, creating order and tax bill locally:", e);
       }
-    } catch (e) {
-      console.warn("Backend API unavailable, creating order and tax bill locally:", e);
     }
 
     // Seamless fallback for GitHub Pages static hosting:
@@ -268,27 +287,40 @@ export default function App() {
       pickup_time_est: "10 mins",
     };
 
-    setOrders((prev) => [localOrder, ...prev]);
+    setOrders((prev) => {
+      const updated = [localOrder, ...prev];
+      try {
+        localStorage.setItem("smartbrite_campus_orders", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     return localOrder;
   };
 
-  // Update Order Status (Kitchen Queue)
+  // Update Order Status (Kitchen Queue & Admin Management)
   const handleUpdateOrderStatus = async (orderId: string, status: Order["status"]) => {
-    try {
-      const res = await fetch(`/api/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
+    setOrders((prev) => {
+      const updated = prev.map((o) => (o._id === orderId ? { ...o, status } : o));
+      try {
+        localStorage.setItem("smartbrite_campus_orders", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
 
-      if (res.ok) {
-        setOrders((prev) =>
-          prev.map((o) => (o._id === orderId ? { ...o, status } : o))
-        );
-        fetchData();
+    if (!isStaticDeployment) {
+      try {
+        const res = await fetch(`/api/orders/${orderId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+
+        if (res.ok) {
+          fetchData();
+        }
+      } catch (err) {
+        console.error("Failed to update status on server:", err);
       }
-    } catch (err) {
-      console.error("Failed to update status:", err);
     }
   };
 
