@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme color scheme & smooth background transitions */
+:root {
+  color-scheme: light;
+}
+
+:root.dark,
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.dark body {
+  background-color: #12100e;
+  color: #f7f3ec;
+}

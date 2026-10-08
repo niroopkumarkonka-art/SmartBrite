@@ -21,6 +21,41 @@ export interface ExportDataPayload {
 }
 
 /**
+ * Cross-browser reliable file downloader that guarantees explicit filename
+ * and extension in Chrome, Edge, Safari, and Firefox.
+ * Specifically appends the <a> tag to document.body and uses a simulated mouse event,
+ * which prevents Chromium from falling back to UUID/blob-hash filenames.
+ */
+export function downloadBlobFile(blob: Blob, filename: string) {
+  if ((window.navigator as any)?.msSaveOrOpenBlob) {
+    (window.navigator as any).msSaveOrOpenBlob(blob, filename);
+    return;
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.style.display = "none";
+  a.href = url;
+  a.download = filename;
+  a.setAttribute("download", filename);
+
+  // CRITICAL: Chromium requires the element to be appended to document.body
+  // to honor the custom download filename instead of falling back to the blob UUID!
+  document.body.appendChild(a);
+
+  // Trigger download
+  a.click();
+
+  // Cleanup
+  setTimeout(() => {
+    if (a.parentNode) {
+      document.body.removeChild(a);
+    }
+    window.URL.revokeObjectURL(url);
+  }, 2000);
+}
+
+/**
  * Exports comprehensive canteen demand, sales, inventory & food waste data into an Excel (.xlsx) workbook
  */
 export function exportToExcel(data: ExportDataPayload, filename = "SmartBite_Canteen_Report.xlsx") {
@@ -146,8 +181,12 @@ export function exportToExcel(data: ExportDataPayload, filename = "SmartBite_Can
     XLSX.utils.book_append_sheet(wb, prepWs, "Tomorrow Prep Plan");
   }
 
-  // Trigger browser download
-  XLSX.writeFile(wb, filename);
+  // Generate binary XLSX buffer and trigger reliable download
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  downloadBlobFile(blob, filename);
 }
 
 /**
@@ -384,5 +423,8 @@ export function exportToPDF(data: ExportDataPayload, filename = "SmartBite_Cante
     { align: "center" }
   );
 
-  doc.save(filename);
+  // Generate PDF blob and trigger reliable download with explicit filename & extension
+  const pdfBlob = doc.output("blob");
+  const blob = new Blob([pdfBlob], { type: "application/pdf" });
+  downloadBlobFile(blob, filename);
 }

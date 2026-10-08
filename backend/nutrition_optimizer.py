@@ -83,9 +83,34 @@ def optimize_nutrition(
     Evaluates each candidate item against the user profile using a mathematical scoring function:
     Score = w1 * |cal - target| + w2 * (target_protein - actual_protein) - w3 * density_score
     """
-    profile = GOAL_MACRO_PROFILES.get(goal, GOAL_MACRO_PROFILES["Balanced Energy & Focus"])
-    allergies_clean = [a.lower().strip() for a in (allergies or []) if a]
+    profile = GOAL_MACRO_PROFILES.get(goal)
+    if not profile:
+        g_lower = (goal or "").lower()
+        if "protein" in g_lower or "gym" in g_lower:
+            profile = GOAL_MACRO_PROFILES["High Protein"]
+        elif "cognitive" in g_lower or "exam" in g_lower or "brain" in g_lower:
+            profile = GOAL_MACRO_PROFILES["Balanced Energy & Focus"]
+        elif "calorie" in g_lower or "fiber" in g_lower or "cut" in g_lower or "weight" in g_lower:
+            profile = GOAL_MACRO_PROFILES["Low Calorie / Weight Loss"]
+        elif "plant" in g_lower or "green" in g_lower or "vitality" in g_lower:
+            profile = GOAL_MACRO_PROFILES["Plant-Based Vitality"]
+        elif "keto" in g_lower or "carb" in g_lower:
+            profile = GOAL_MACRO_PROFILES["Low Carb / Keto Friendly"]
+        else:
+            profile = GOAL_MACRO_PROFILES["Balanced Energy & Focus"]
+    if isinstance(allergies, str):
+        if allergies.lower().strip() in ["", "none", "no allergies", "null"]:
+            allergies_clean = []
+        else:
+            allergies_clean = [a.lower().strip() for a in allergies.split(",") if a.strip() and a.lower().strip() != "none"]
+    elif isinstance(allergies, list):
+        allergies_clean = [str(a).lower().strip() for a in allergies if a and str(a).lower().strip() not in ["", "none", "no allergies"]]
+    else:
+        allergies_clean = []
+
     pref_clean = (dietary_preferences or "").lower().strip()
+    if pref_clean in ["none", "no preference"]:
+        pref_clean = ""
 
     scored_candidates = []
 

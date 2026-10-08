@@ -19,14 +19,19 @@ import {
   ChefHat,
   Utensils,
   ArrowUpRight,
+  LogOut,
 } from "lucide-react";
 import GlyphPortal from "./glyph-portal";
+import WorksWheelDemo from "./works-wheel-demo";
+import SerpAPIFoodSearch from "./SerpAPIFoodSearch";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface ModernHeroProps {
   onStartOrder?: () => void;
   onOpenKitchen?: () => void;
   onOpenNutrition?: () => void;
   onOpenAnalytics?: () => void;
+  onLogout?: () => void;
 }
 
 interface TrayItem {
@@ -152,6 +157,7 @@ export const SmoothScrollHero: React.FC<ModernHeroProps> = ({
   onOpenKitchen,
   onOpenNutrition,
   onOpenAnalytics,
+  onLogout,
 }) => {
   const [activeFilter, setActiveFilter] = useState("All");
   const [tray, setTray] = useState<TrayItem[]>([
@@ -277,7 +283,7 @@ export const SmoothScrollHero: React.FC<ModernHeroProps> = ({
             </a>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <a
               href="#menu"
               className="hidden lg:inline-flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white transition font-mono uppercase tracking-wider"
@@ -304,6 +310,23 @@ export const SmoothScrollHero: React.FC<ModernHeroProps> = ({
               <span>Tray</span>
               <b>{tray.reduce((s, i) => s + i.qty, 0).toString().padStart(2, "0")}</b>
             </button>
+
+            {/* Theme Toggle */}
+            <div className="flex items-center">
+              <ThemeToggle className="p-1.5 rounded-xl border-white/20 bg-black/40 text-amber-300 hover:bg-black/60 scale-90" />
+            </div>
+
+            {/* Logout Button (requested in image 3) */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900 border border-rose-500/50 text-rose-200 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer"
+                title="Log out of SmartBrite"
+              >
+                <LogOut className="h-3.5 w-3.5 text-rose-400" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -570,6 +593,35 @@ export const SmoothScrollHero: React.FC<ModernHeroProps> = ({
               </div>
             </div>
           </GlyphPortal>
+        </section>
+
+        {/* 4.5. Interactive 3D Works Wheel Showcase */}
+        <section className="relative w-full py-16 px-4 sm:px-6 lg:px-8 bg-zinc-950 text-white overflow-hidden border-t border-zinc-800">
+          <div className="max-w-7xl mx-auto space-y-8">
+            <div className="text-center max-w-2xl mx-auto space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-950/60 px-4 py-1 text-xs font-mono text-indigo-300">
+                <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                <span>3D DRUM PERSPECTIVE · SHADCN & CRAFTERUI</span>
+              </div>
+              <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
+                Turn the <span className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-400 bg-clip-text text-transparent">Culinary Wheel</span>
+              </h2>
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                Scroll with mouse wheel or drag vertically to spin through our campus signature dishes in realistic 3D perspective geometry.
+              </p>
+            </div>
+
+            <WorksWheelDemo onSelectDish={(_dish) => {
+              if (onStartOrder) onStartOrder();
+            }} />
+          </div>
+        </section>
+
+        {/* 4.6. Cult Directory & Live SerpAPI Google Dining Engine */}
+        <section className="relative w-full py-12 px-4 sm:px-6 lg:px-8 bg-[#090d16] text-white border-t border-white/10">
+          <div className="max-w-7xl mx-auto">
+            <SerpAPIFoodSearch />
+          </div>
         </section>
 
         {/* 5. 04 / The menu */}

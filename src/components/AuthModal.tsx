@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X, LogIn, Sparkles, User, ShieldCheck, Mail, ArrowRight, Lock } from "lucide-react";
 import { User as UserType } from "../types";
+import { GoogleAccountChooserModal } from "./GoogleAccountChooserModal";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -21,26 +22,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [studentId, setStudentId] = useState("");
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleChooserOpen, setIsGoogleChooserOpen] = useState(false);
 
   if (!isOpen) return null;
 
   // Google One-Click Sign In Handler
   const handleGoogleSignIn = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      const googleUser: UserType = {
-        _id: `google_user_${Date.now()}`,
-        name: name.trim() || "Niroop Kumar Konka",
-        email: email.trim() || "niroopkumarkonka@gmail.com",
-        role: role,
-        student_id: studentId || "STU-2026-884",
-        avatar_url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80",
-        created_at: new Date().toISOString(),
-      };
-      setIsLoading(false);
-      onLoginSuccess(googleUser);
-      onClose();
-    }, 600);
+    setIsGoogleChooserOpen(true);
   };
 
   const handleEmailSubmit = (e: React.FormEvent) => {
@@ -276,6 +264,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Google Account Chooser Modal */}
+      <GoogleAccountChooserModal
+        isOpen={isGoogleChooserOpen}
+        onClose={() => setIsGoogleChooserOpen(false)}
+        onSelectAccount={(user) => {
+          onLoginSuccess(user);
+          onClose();
+        }}
+      />
     </div>
   );
 };

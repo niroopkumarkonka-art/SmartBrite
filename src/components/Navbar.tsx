@@ -11,6 +11,7 @@ import {
   Terminal,
   LogOut,
 } from "lucide-react";
+import ThemeToggle from "./ui/ThemeToggle";
 
 interface NavbarProps {
   activeTab: "kiosk" | "kitchen" | "admin";
@@ -238,6 +239,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Sign In</span>
             </button>
           )}
+
+          {/* Theme Switcher Toggle (Light Mode / Dusky Dark Mode) */}
+          <ThemeToggle />
 
           {/* Cart Trigger */}
           <button

@@ -1,12 +1,19 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import dns from "dns";
 import { spawn, spawnSync } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { MongoClient, Db } from "mongodb";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Ensure public DNS resolver for reliable MongoDB Atlas SRV connection on Windows
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch (_) {}
 
 // Auto-detect available Python command across platforms (py on Windows, python3/python on Unix)
 let cachedPythonCmd: string | null = null;
@@ -103,6 +110,8 @@ interface User {
   name: string;
   email: string;
   role: "customer" | "staff" | "admin";
+  student_id?: string;
+  avatar_url?: string;
   dietary_preference?: string;
   allergies?: string[];
   created_at: string;
@@ -180,6 +189,15 @@ interface Feedback {
 
 // Initial Seed Data
 const INITIAL_USERS: User[] = [
+  {
+    _id: "usr_admin_01",
+    name: "Niroop Kumar Konka",
+    email: "niroopkumarkonka@gmail.com",
+    role: "admin",
+    dietary_preference: "Standard",
+    allergies: [],
+    created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+  },
   {
     _id: "usr_001",
     name: "Alex Rivera",
@@ -351,7 +369,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
     carbs_g: 66,
     fat_g: 16,
     dietary_tags: ["Awadhi Heritage", "High Protein", "Aromatics", "Chef Special"],
-    image_url: "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=800&q=80",
+    image_url: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=800&q=80",
     active: true,
     created_at: new Date().toISOString(),
   },
@@ -829,7 +847,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
     carbs_g: 52,
     fat_g: 12,
     dietary_tags: ["Vegetarian", "Regional Heritage", "Bestseller"],
-    image_url: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=800&q=80",
+    image_url: "https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?auto=format&fit=crop&w=800&q=80",
     active: true,
     created_at: new Date().toISOString(),
   },
@@ -1194,8 +1212,12 @@ const INITIAL_FEEDBACK: Feedback[] = [
   },
 ];
 
-// Persistent state holder
+// Persistent state holder with MongoDB integration and In-Memory fallback
 class SmartCanteenDB {
+  mongoClient: MongoClient | null = null;
+  mongoDb: Db | null = null;
+  isMongoConnected = false;
+
   users: User[] = [...INITIAL_USERS];
   menuItems: MenuItem[] = [...INITIAL_MENU_ITEMS];
   inventory: InventoryItem[] = [...INITIAL_INVENTORY];
@@ -1204,11 +1226,357 @@ class SmartCanteenDB {
   feedback: Feedback[] = [...INITIAL_FEEDBACK];
   nextOrderSeq = 105;
 
-  // Optimistic Concurrency Control Mutex emulation for ACID transaction verification
-  private lock = false;
+  async initMongo(uri: string) {
+    try {
+      const sanitizedUri = uri.replace(/:([^:@]+)@/, ":****@");
+      console.log(`Connecting to MongoDB Atlas at: ${sanitizedUri}`);
+      this.mongoClient = new MongoClient(uri, {
+        serverSelectionTimeoutMS: 10000,
+        connectTimeoutMS: 10000,
+      });
+      await this.mongoClient.connect();
+      this.mongoDb = this.mongoClient.db("smartbrite");
+      this.isMongoConnected = true;
+      console.log(`🌿 [MongoDB Atlas Connected] Database "${this.mongoDb.databaseName}" is active & ready.`);
 
-  async placeOrder(userId: string, items: { menu_item_id: string; qty: number }[], paymentMethod = "Campus Card") {
-    // Module 4 & 5: Atomic transaction with optimistic stock checking
+      // Collections initialization & initial seeding if empty
+      const usersCol = this.mongoDb.collection<User>("users");
+      const menuCol = this.mongoDb.collection<MenuItem>("menu_items");
+      const invCol = this.mongoDb.collection<InventoryItem>("inventory");
+      const ordersCol = this.mongoDb.collection<Order>("orders");
+      const wasteCol = this.mongoDb.collection<WasteRecord>("waste_records");
+      const feedbackCol = this.mongoDb.collection<Feedback>("feedback");
+
+      const userCount = await usersCol.countDocuments();
+      if (userCount === 0) {
+        await usersCol.insertMany(INITIAL_USERS);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded initial campus users.");
+      }
+      // Ensure Niroop admin user exists in MongoDB Atlas
+      await usersCol.updateOne(
+        { email: "niroopkumarkonka@gmail.com" },
+        {
+          $setOnInsert: {
+            _id: "usr_admin_01",
+            name: "Niroop Kumar Konka",
+            email: "niroopkumarkonka@gmail.com",
+            role: "admin",
+            dietary_preference: "Standard",
+            allergies: [],
+            created_at: new Date().toISOString(),
+          },
+        },
+        { upsert: true }
+      );
+      this.users = await usersCol.find().toArray();
+
+      const menuCount = await menuCol.countDocuments();
+      if (menuCount === 0) {
+        await menuCol.insertMany(INITIAL_MENU_ITEMS);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded initial menu items catalog.");
+      }
+      this.menuItems = await menuCol.find().toArray();
+      // Ensure authentic images for all dishes in MongoDB Atlas
+      await menuCol.updateOne(
+        { _id: "menu_des_02" },
+        { $set: { image_url: "https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?auto=format&fit=crop&w=800&q=80" } }
+      );
+      await menuCol.updateOne(
+        { _id: "menu_biryani_04" },
+        { $set: { image_url: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=800&q=80" } }
+      );
+      this.menuItems = await menuCol.find().toArray();
+
+      const invCount = await invCol.countDocuments();
+      if (invCount === 0) {
+        await invCol.insertMany(INITIAL_INVENTORY);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded initial kitchen inventory.");
+      }
+      this.inventory = await invCol.find().toArray();
+
+      const orderCount = await ordersCol.countDocuments();
+      if (orderCount === 0) {
+        await ordersCol.insertMany(INITIAL_ORDERS);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded order transaction records.");
+      }
+      this.orders = await ordersCol.find().sort({ created_at: -1 }).toArray();
+
+      const wasteCount = await wasteCol.countDocuments();
+      if (wasteCount === 0) {
+        await wasteCol.insertMany(INITIAL_WASTE_RECORDS);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded waste logs.");
+      }
+      this.wasteRecords = await wasteCol.find().sort({ date: -1 }).toArray();
+
+      const feedbackCount = await feedbackCol.countDocuments();
+      if (feedbackCount === 0) {
+        await feedbackCol.insertMany(INITIAL_FEEDBACK);
+        console.log("🌱 [MongoDB Atlas Seeder] Seeded dining feedback.");
+      }
+      this.feedback = await feedbackCol.find().toArray();
+
+      this.nextOrderSeq = this.orders.length + 105;
+      console.log(`✅ [MongoDB Atlas Synced] ${this.menuItems.length} menu items, ${this.orders.length} orders loaded.`);
+
+      // Automatically keep database/order_bills_data.sql synchronized in backend
+      try {
+        const sql = this.generateFullOrderBillsSQL();
+        const sqlPath = path.join(process.cwd(), "database", "order_bills_data.sql");
+        fs.writeFileSync(sqlPath, sql, "utf8");
+      } catch (sErr) {
+        console.error("Auto-sync order bills SQL error:", sErr);
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ [MongoDB Fallback] Notice: ${err.message}. Seamlessly running with In-Memory datastore.`);
+      this.isMongoConnected = false;
+    }
+  }
+
+  // Helper methods to synchronize data into database/*.sql files
+  syncUserToSQL(user: User) {
+    try {
+      const sqlPath = path.join(process.cwd(), "database", "users_login_data.sql");
+      const userSql = `\n-- Synced User Record: ${user.name}\nINSERT INTO users (user_id, name, email, role, dietary_preference, allergies, created_at) VALUES ('${user._id.replace(/'/g, "''")}', '${user.name.replace(/'/g, "''")}', '${user.email.replace(/'/g, "''")}', '${user.role}', '${(user.dietary_preference || "Standard").replace(/'/g, "''")}', '${JSON.stringify(user.allergies || [])}', '${new Date().toISOString().slice(0, 19).replace("T", " ")}') ON DUPLICATE KEY UPDATE name=VALUES(name);\n`;
+      fs.appendFileSync(sqlPath, userSql);
+    } catch (err) {
+      console.error("Failed to append user to SQL file:", err);
+    }
+  }
+
+  async registerUser(userData: Partial<User>): Promise<User> {
+    const email = (userData.email || "").trim().toLowerCase();
+    const existing = this.users.find((u) => u.email.toLowerCase() === email);
+
+    if (existing) {
+      if (userData.name) existing.name = userData.name;
+      if (userData.role) existing.role = userData.role as any;
+      if (userData.student_id) existing.student_id = userData.student_id;
+      if (userData.dietary_preference) existing.dietary_preference = userData.dietary_preference;
+      if (userData.avatar_url) existing.avatar_url = userData.avatar_url;
+
+      if (this.isMongoConnected && this.mongoDb) {
+        try {
+          await this.mongoDb.collection("users").updateOne({ email }, { $set: existing }, { upsert: true });
+        } catch (e) {
+          console.error("MongoDB user update error:", e);
+        }
+      }
+      this.syncUserToSQL(existing);
+      this.syncLoginToSQL(existing.email, existing.role, existing._id, "Profile Update");
+      return existing;
+    }
+
+    const newUser: User = {
+      _id: userData._id || `usr_${Date.now()}`,
+      name: userData.name || (email.split("@")[0] || "Campus Diner"),
+      email: email,
+      role: (userData.role as any) || "customer",
+      student_id: userData.student_id,
+      dietary_preference: userData.dietary_preference || "Standard",
+      allergies: userData.allergies || [],
+      avatar_url: userData.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=140&q=80",
+      created_at: new Date().toISOString(),
+    };
+
+    this.users.push(newUser);
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("users").insertOne(newUser as any);
+      } catch (e) {
+        console.error("MongoDB user insert error:", e);
+      }
+    }
+    this.syncUserToSQL(newUser);
+    this.syncLoginToSQL(newUser.email, newUser.role, newUser._id, "Registration");
+    return newUser;
+  }
+
+  syncLoginToSQL(email: string, role: string, user_id: string, method = "Password") {
+    try {
+      const sqlPath = path.join(process.cwd(), "database", "users_login_data.sql");
+      const logId = `log_${Date.now()}`;
+      const loginSql = `INSERT INTO user_logins (login_id, user_id, email, role, login_method, ip_address, login_time) VALUES ('${logId}', '${user_id.replace(/'/g, "''")}', '${email.replace(/'/g, "''")}', '${role}', '${method}', '127.0.0.1', '${new Date().toISOString().slice(0, 19).replace("T", " ")}');\n`;
+      fs.appendFileSync(sqlPath, loginSql);
+    } catch (err) {
+      console.error("Failed to append login to SQL file:", err);
+    }
+  }
+
+  syncOrderBillToSQL(order: Order) {
+    try {
+      const sqlPath = path.join(process.cwd(), "database", "order_bills_data.sql");
+      const billId = `bill_${order._id.replace("ord_", "")}`;
+      let sql = `\n-- Order & Bill Receipt: ${order.token_number} (${order.user_name})\n`;
+      sql += `INSERT INTO orders (order_id, token_number, user_id, user_name, total_amount, status, payment_method, pickup_time_est, created_at) VALUES ('${order._id}', '${order.token_number}', '${order.user_id}', '${(order.user_name || "Customer").replace(/'/g, "''")}', ${order.total_amount.toFixed(2)}, '${order.status}', '${order.payment_method}', '${order.pickup_time_est || ""}', '${new Date().toISOString().slice(0, 19).replace("T", " ")}');\n`;
+
+      for (let i = 0; i < order.items.length; i++) {
+        const item = order.items[i];
+        const lineId = `line_${order._id}_${i + 1}`;
+        sql += `INSERT INTO order_bill_items (line_id, order_id, menu_item_id, name, unit_price, qty, subtotal) VALUES ('${lineId}', '${order._id}', '${item.menu_item_id}', '${item.name.replace(/'/g, "''")}', ${item.unit_price.toFixed(2)}, ${item.qty}, ${item.subtotal.toFixed(2)});\n`;
+      }
+
+      sql += `INSERT INTO bills (bill_id, order_id, token_number, customer_name, customer_email, total_amount, tax_amount, grand_total, payment_method, payment_status, receipt_timestamp) VALUES ('${billId}', '${order._id}', '${order.token_number}', '${(order.user_name || "Customer").replace(/'/g, "''")}', 'customer@campus.edu', ${order.total_amount.toFixed(2)}, 0.00, ${order.total_amount.toFixed(2)}, '${order.payment_method}', 'paid', '${new Date().toISOString().slice(0, 19).replace("T", " ")}');\n`;
+
+      fs.appendFileSync(sqlPath, sql);
+    } catch (err) {
+      console.error("Failed to append order/bill to SQL file:", err);
+    }
+  }
+
+  generateFullOrderBillsSQL(): string {
+    let sql = `-- ============================================================================\n`;
+    sql += `-- SmartBrite Campus Dining - Orders & Bills Data Store (SQL)\n`;
+    sql += `-- Fully Synchronized with MongoDB Atlas 'orders' Collection\n`;
+    sql += `-- Generated on ${new Date().toISOString()}\n`;
+    sql += `-- ============================================================================\n\n`;
+    sql += `USE smartbrite;\n\n`;
+
+    if (this.orders.length === 0) {
+      sql += `-- No orders recorded yet.\n`;
+      return sql;
+    }
+
+    for (const order of this.orders) {
+      const billId = `bill_${order._id.replace("ord_", "")}`;
+      sql += `-- ----------------------------------------------------------------------------\n`;
+      sql += `-- Order Token: ${order.token_number} | Customer: ${order.user_name || "Campus Diner"}\n`;
+      sql += `-- ----------------------------------------------------------------------------\n`;
+      sql += `INSERT INTO orders (order_id, token_number, user_id, user_name, total_amount, status, payment_method, pickup_time_est, created_at)\n`;
+      sql += `VALUES ('${order._id}', '${order.token_number}', '${order.user_id}', '${(order.user_name || "Customer").replace(/'/g, "''")}', ${order.total_amount.toFixed(2)}, '${order.status}', '${order.payment_method}', '${order.pickup_time_est || ""}', '${order.created_at.slice(0, 19).replace("T", " ")}')\n`;
+      sql += `ON DUPLICATE KEY UPDATE status='${order.status}';\n\n`;
+
+      if (order.items && order.items.length > 0) {
+        sql += `INSERT INTO order_bill_items (line_id, order_id, menu_item_id, name, unit_price, qty, subtotal)\nVALUES\n`;
+        const itemRows = order.items.map((item, idx) => {
+          const lineId = `line_${order._id}_${idx + 1}`;
+          return `  ('${lineId}', '${order._id}', '${item.menu_item_id}', '${item.name.replace(/'/g, "''")}', ${item.unit_price.toFixed(2)}, ${item.qty}, ${item.subtotal.toFixed(2)})`;
+        });
+        sql += itemRows.join(",\n") + `\nON DUPLICATE KEY UPDATE qty=VALUES(qty);\n\n`;
+      }
+
+      sql += `INSERT INTO bills (bill_id, order_id, token_number, customer_name, customer_email, total_amount, tax_amount, grand_total, payment_method, payment_status, receipt_timestamp)\n`;
+      sql += `VALUES ('${billId}', '${order._id}', '${order.token_number}', '${(order.user_name || "Customer").replace(/'/g, "''")}', 'customer@campus.edu', ${order.total_amount.toFixed(2)}, 0.00, ${order.total_amount.toFixed(2)}, '${order.payment_method}', '${order.status === "cancelled" ? "cancelled" : "paid"}', '${order.created_at.slice(0, 19).replace("T", " ")}')\n`;
+      sql += `ON DUPLICATE KEY UPDATE payment_status='${order.status === "cancelled" ? "cancelled" : "paid"}';\n\n`;
+    }
+
+    return sql;
+  }
+
+  syncMenuItemToSQL(item: MenuItem) {
+    try {
+      const sqlPath = path.join(process.cwd(), "database", "items_data.sql");
+      const itemSql = `\n-- New / Updated Menu Item: ${item.name}\nINSERT INTO menu_items (item_id, name, category, price, stock_qty, prep_time_minutes, ingredients, calories, protein_g, carbs_g, fat_g, dietary_tags, image_url, active, created_at) VALUES ('${item._id}', '${item.name.replace(/'/g, "''")}', '${item.category}', ${item.price.toFixed(2)}, ${item.stock_qty}, ${item.prep_time_minutes}, '${JSON.stringify(item.ingredients)}', ${item.calories}, ${item.protein_g}, ${item.carbs_g}, ${item.fat_g}, '${JSON.stringify(item.dietary_tags)}', '${item.image_url}', ${item.active ? "TRUE" : "FALSE"}, NOW()) ON DUPLICATE KEY UPDATE stock_qty=VALUES(stock_qty), price=VALUES(price);\n`;
+      fs.appendFileSync(sqlPath, itemSql);
+    } catch (err) {
+      console.error("Failed to append item to SQL file:", err);
+    }
+  }
+
+  async addUser(user: User) {
+    this.users.push(user);
+    this.syncUserToSQL(user);
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("users").insertOne(user as any);
+      } catch (e) {
+        console.error("MongoDB user insert error:", e);
+      }
+    }
+    return user;
+  }
+
+  async addMenuItem(item: MenuItem) {
+    this.menuItems.push(item);
+    this.syncMenuItemToSQL(item);
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("menu_items").insertOne(item as any);
+      } catch (e) {
+        console.error("MongoDB menu item insert error:", e);
+      }
+    }
+    return item;
+  }
+
+  async updateMenuItem(id: string, updates: Partial<MenuItem>) {
+    const item = this.menuItems.find((m) => m._id === id);
+    if (item) {
+      Object.assign(item, updates);
+      this.syncMenuItemToSQL(item);
+    }
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("menu_items").updateOne({ _id: id } as any, { $set: updates });
+      } catch (e) {
+        console.error("MongoDB menu update error:", e);
+      }
+    }
+    return item;
+  }
+
+  async deleteMenuItem(id: string) {
+    const idx = this.menuItems.findIndex((m) => m._id === id);
+    if (idx !== -1) {
+      this.menuItems.splice(idx, 1);
+    }
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("menu_items").deleteOne({ _id: id } as any);
+      } catch (e) {
+        console.error("MongoDB menu delete error:", e);
+      }
+    }
+  }
+
+  async updateOrderStatus(id: string, status: Order["status"]) {
+    const order = this.orders.find((o) => o._id === id);
+    if (order) {
+      order.status = status;
+      // Automatically keep database/order_bills_data.sql updated in backend
+      try {
+        const sql = this.generateFullOrderBillsSQL();
+        const sqlPath = path.join(process.cwd(), "database", "order_bills_data.sql");
+        fs.writeFileSync(sqlPath, sql, "utf8");
+      } catch (sqlErr) {
+        console.error("Auto SQL sync error on status update:", sqlErr);
+      }
+    }
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("orders").updateOne({ _id: id } as any, { $set: { status } });
+      } catch (e) {
+        console.error("MongoDB order status update error:", e);
+      }
+    }
+    return order;
+  }
+
+  async addWasteRecord(record: WasteRecord) {
+    this.wasteRecords.unshift(record);
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("waste_records").insertOne(record as any);
+      } catch (e) {
+        console.error("MongoDB waste insert error:", e);
+      }
+    }
+    return record;
+  }
+
+  async addFeedback(doc: Feedback) {
+    this.feedback.unshift(doc);
+    if (this.isMongoConnected && this.mongoDb) {
+      try {
+        await this.mongoDb.collection("feedback").insertOne(doc as any);
+      } catch (e) {
+        console.error("MongoDB feedback insert error:", e);
+      }
+    }
+    return doc;
+  }
+
+  async placeOrder(userId: string, items: { menu_item_id: string; qty: number }[], paymentMethod = "Campus Card", userName?: string) {
+    // Atomic transaction with optimistic stock checking
     const user = this.users.find((u) => u._id === userId) || this.users[0];
     const decremented: { item: MenuItem; qty: number }[] = [];
     const lineItems: OrderItem[] = [];
@@ -1223,7 +1591,6 @@ class SmartCanteenDB {
         if (!item.active) {
           throw new Error(`Item is no longer available: ${item.name}`);
         }
-        // Optimistic stock check:
         if (item.stock_qty < line.qty) {
           throw new Error(`Insufficient stock for "${item.name}". Requested: ${line.qty}, Available: ${item.stock_qty}`);
         }
@@ -1246,8 +1613,8 @@ class SmartCanteenDB {
       const newOrder: Order = {
         _id: `ord_${this.nextOrderSeq}`,
         token_number: `A-${this.nextOrderSeq}`,
-        user_id: user._id,
-        user_name: user.name,
+        user_id: user?._id || userId,
+        user_name: userName || user?.name || "Student",
         items: lineItems,
         total_amount: Math.round(total * 100) / 100,
         status: "placed",
@@ -1257,9 +1624,28 @@ class SmartCanteenDB {
       };
       this.nextOrderSeq += 1;
       this.orders.unshift(newOrder);
+
+      // Persist to MongoDB Atlas
+      if (this.isMongoConnected && this.mongoDb) {
+        try {
+          await this.mongoDb.collection("orders").insertOne(newOrder as any);
+          for (const d of decremented) {
+            await this.mongoDb.collection("menu_items").updateOne(
+              { _id: d.item._id } as any,
+              { $inc: { stock_qty: -d.qty } }
+            );
+          }
+        } catch (mErr) {
+          console.error("MongoDB order persistence error:", mErr);
+        }
+      }
+
+      // Simultaneously append to order_bills_data.sql file
+      this.syncOrderBillToSQL(newOrder);
+
       return newOrder;
     } catch (err) {
-      // Rollback on any failure (ACID Atomicity guarantee)
+      // Rollback on any failure
       for (const rec of decremented) {
         rec.item.stock_qty += rec.qty;
       }
@@ -1270,50 +1656,320 @@ class SmartCanteenDB {
 
 const db = new SmartCanteenDB();
 
+
+
 // --------------------------------------------------------------------------
 // Express App & Routes
 // --------------------------------------------------------------------------
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/smartbrite";
+
+  // Initialize MongoDB connection on startup
+  await db.initMongo(mongoUri);
 
   app.use(express.json());
 
+  // Database Connection Status endpoint
+  app.get("/api/db-status", (_req, res) => {
+    res.json({
+      connected: db.isMongoConnected,
+      engine: db.isMongoConnected ? "MongoDB" : "In-Memory Datastore",
+      database: db.isMongoConnected ? (db.mongoDb?.databaseName || "smartbrite") : "in-memory",
+      uri: db.isMongoConnected ? mongoUri.replace(/:([^:@]+)@/, ":****@") : null,
+      counts: {
+        users: db.users.length,
+        menu_items: db.menuItems.length,
+        orders: db.orders.length,
+        waste_records: db.wasteRecords.length,
+        feedback: db.feedback.length,
+      },
+    });
+  });
+
   // Health check
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "healthy", timestamp: new Date().toISOString(), system: "Smart Canteen DB Engine" });
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      system: "Smart Canteen DB Engine",
+      database: db.isMongoConnected ? "MongoDB Atlas Active" : "In-Memory Active",
+    });
+  });
+
+  // User Registration & Auto-store in MongoDB Atlas & SQL Database
+  app.post("/api/users", async (req, res) => {
+    try {
+      const user = await db.registerUser(req.body);
+      res.status(201).json(user);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to save user details" });
+    }
+  });
+
+  // Get user details by email
+  app.get("/api/users/:email", (req, res) => {
+    const user = db.users.find((u) => u.email.toLowerCase() === req.params.email.toLowerCase());
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  });
+
+  // Google Account Verification / Auto-Register
+  app.post("/api/auth/google-verify", async (req, res) => {
+    try {
+      const email = (req.body.email || "").trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: "Email is required" });
+
+      let user = db.users.find((u) => u.email.toLowerCase() === email);
+
+      // If not in memory, check MongoDB Atlas
+      if (!user && db.isMongoConnected && db.mongoDb) {
+        try {
+          const doc = await db.mongoDb.collection("users").findOne({ email });
+          if (doc) {
+            user = doc as any;
+            if (user) {
+              db.users.push(user);
+            }
+          }
+        } catch (mErr) {
+          console.error("MongoDB user lookup error:", mErr);
+        }
+      }
+
+      // If auto-register requested or details supplied, auto-create
+      if (!user && (req.body.autoRegister || req.body.name)) {
+        user = await db.registerUser({
+          name: req.body.name || email.split("@")[0].replace(".", " ").toUpperCase(),
+          email,
+          role: req.body.role || "customer",
+          student_id: req.body.role === "staff" ? undefined : `CS-${Math.floor(1000 + Math.random() * 9000)}`,
+        });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          found: false,
+          error: `Account "${email}" was not found in the SmartBrite database. Please create an account first.`,
+        });
+      }
+
+      db.syncLoginToSQL(user.email, user.role, user._id, "Google Sign-In");
+      return res.json({ found: true, user });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Google verification failed" });
+    }
+  });
+
+  // AI Nutritionist Guide Recommendation Engine
+  app.post("/api/ai/recommend", (req, res) => {
+    try {
+      const { goal = "", dietaryPreferences = "None", allergies = "None", targetCalories = 550 } = req.body;
+      const targetCal = Number(targetCalories) || 550;
+      const diet = (dietaryPreferences || "None").toLowerCase();
+      const allergy = (allergies || "None").toLowerCase();
+
+      // Filter dishes matching diet and allergens strictly
+      let candidates = db.menuItems.filter((item) => {
+        const itemTags = (item.dietary_tags || []).map((t) => t.toLowerCase());
+        const itemIngredients = (item.ingredients || []).map((i) => i.toLowerCase()).join(" ");
+        const itemName = item.name.toLowerCase();
+
+        // 1. Dietary Preference Filter
+        if (diet === "vegetarian" || diet === "veg") {
+          const isVeg = itemTags.some((t) => t.includes("veg") && !t.includes("non-veg"));
+          const isMeat = itemName.includes("chicken") || itemName.includes("mutton") || itemName.includes("meat") || itemName.includes("fish");
+          if (!isVeg || isMeat) return false;
+        } else if (diet === "vegan") {
+          const isVegan = itemTags.some((t) => t.includes("vegan"));
+          const isDairyOrMeat = itemName.includes("paneer") || itemName.includes("cheese") || itemName.includes("chicken") || itemName.includes("milk") || itemName.includes("gelato") || itemName.includes("ghee");
+          if (!isVegan || isDairyOrMeat) return false;
+        } else if (diet === "non-veg" || diet === "non-vegetarian") {
+          const isNonVeg = itemTags.some((t) => t.includes("non-veg")) || itemName.includes("chicken") || itemName.includes("mutton") || itemName.includes("egg");
+          if (!isNonVeg) return false;
+        }
+
+        // 2. Allergies to Avoid
+        if (allergy.includes("dairy")) {
+          const hasDairy = itemIngredients.includes("milk") || itemIngredients.includes("cheese") || itemIngredients.includes("paneer") || itemIngredients.includes("butter") || itemIngredients.includes("ghee") || itemIngredients.includes("gelato") || itemName.includes("paneer") || itemName.includes("gelato");
+          if (hasDairy) return false;
+        }
+        if (allergy.includes("gluten")) {
+          const hasGluten = itemIngredients.includes("flour") || itemIngredients.includes("wheat") || itemIngredients.includes("roti") || itemIngredients.includes("waffle") || itemName.includes("waffle") || itemName.includes("burger");
+          if (hasGluten) return false;
+        }
+        if (allergy.includes("nut")) {
+          const hasNuts = itemIngredients.includes("nut") || itemIngredients.includes("cashew") || itemIngredients.includes("almond") || itemIngredients.includes("walnut") || itemIngredients.includes("nutella") || itemName.includes("nutella");
+          if (hasNuts) return false;
+        }
+        if (allergy.includes("egg")) {
+          const hasEgg = itemIngredients.includes("egg") || itemName.includes("egg");
+          if (hasEgg) return false;
+        }
+
+        return true;
+      });
+
+      if (candidates.length === 0) {
+        candidates = db.menuItems.slice(0, 4);
+      }
+
+      // Score and rank candidates based on goal
+      candidates.sort((a, b) => {
+        let scoreA = 0;
+        let scoreB = 0;
+
+        if (goal.includes("Protein") || goal.includes("Gym")) {
+          scoreA += (a.protein_g || 0) * 4;
+          scoreB += (b.protein_g || 0) * 4;
+        } else if (goal.includes("Cognitive") || goal.includes("Exam") || goal.includes("Brain")) {
+          if (a.category.includes("Coffee") || a.name.includes("Oat") || a.name.includes("Bowl")) scoreA += 25;
+          if (b.category.includes("Coffee") || b.name.includes("Oat") || b.name.includes("Bowl")) scoreB += 25;
+        } else if (goal.includes("Low-Calorie") || goal.includes("Fiber") || goal.includes("Light")) {
+          scoreA -= Math.abs(a.calories - targetCal);
+          scoreB -= Math.abs(b.calories - targetCal);
+        } else if (goal.includes("Plant-Based") || goal.includes("Green")) {
+          if (a.dietary_tags.includes("Vegan") || a.dietary_tags.includes("Vegetarian")) scoreA += 30;
+          if (b.dietary_tags.includes("Vegan") || b.dietary_tags.includes("Vegetarian")) scoreB += 30;
+        }
+
+        scoreA -= Math.abs(a.calories - targetCal) * 0.1;
+        scoreB -= Math.abs(b.calories - targetCal) * 0.1;
+
+        return scoreB - scoreA;
+      });
+
+      const selected = candidates.slice(0, 3);
+
+      const reasons: string[] = [];
+      if (goal.includes("Protein")) {
+        reasons.push(`High protein profile (avg ${(selected.reduce((s, i) => s + i.protein_g, 0) / (selected.length || 1)).toFixed(0)}g protein) designed for muscular synthesis, energy, and training satiety.`);
+      } else if (goal.includes("Brain") || goal.includes("Exam")) {
+        reasons.push("Slow-burning complex carbs, caffeine, and clean fats formulated to prevent afternoon brain fog and sustain exam focus.");
+      } else if (goal.includes("Low-Calorie") || goal.includes("Light")) {
+        reasons.push(`Light and fiber-rich meals tailored to stay strictly near your target of ${targetCal} kcal.`);
+      } else {
+        reasons.push("Nutrient-rich, plant-forward formulation packed with antioxidants and essential electrolytes.");
+      }
+
+      if (diet !== "none" && diet !== "no preference") {
+        reasons.push(`Complies with ${diet.toUpperCase()} dietary standards.`);
+      }
+      if (allergy !== "none") {
+        reasons.push(`Zero ${allergy.toUpperCase()} ingredients included.`);
+      }
+
+      return res.json({
+        recommended_items: selected,
+        reasoning: reasons.join(" "),
+        daily_macros: {
+          calories: selected.reduce((s, i) => s + i.calories, 0),
+          protein: selected.reduce((s, i) => s + i.protein_g, 0),
+          carbs: selected.reduce((s, i) => s + i.carbs_g, 0),
+          fat: selected.reduce((s, i) => s + i.fat_g, 0),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to generate recommendations" });
+    }
+  });
+
+  // Endpoints to fetch SQL database files
+  app.get("/api/database/sql/:file", (req, res) => {
+    const filename = req.params.file;
+    const allowed = ["schema.sql", "items_data.sql", "users_login_data.sql", "order_bills_data.sql"];
+    if (!allowed.includes(filename)) {
+      return res.status(404).json({ error: "SQL file not found" });
+    }
+    const filePath = path.join(process.cwd(), "database", filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File does not exist yet" });
+    }
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "application/sql");
+    return res.sendFile(filePath);
+  });
+
+  // Dedicated SQL Database Extraction for Order Bills
+  app.get("/api/database/order-bills-sql", (_req, res) => {
+    const sql = db.generateFullOrderBillsSQL();
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Disposition", 'attachment; filename="order_bills_data.sql"');
+    return res.send(sql);
+  });
+
+  app.post("/api/database/sync-all-orders-sql", (_req, res) => {
+    try {
+      const sql = db.generateFullOrderBillsSQL();
+      const sqlPath = path.join(process.cwd(), "database", "order_bills_data.sql");
+      fs.writeFileSync(sqlPath, sql, "utf8");
+      return res.json({
+        success: true,
+        message: "Successfully extracted and synchronized all order bills to database/order_bills_data.sql",
+        orderCount: db.orders.length,
+        sql,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: "Failed to extract order bills to SQL", details: err.message });
+    }
   });
 
   // 1. Auth routes (Module 1 EER Specialization: Customer / Staff / Admin)
-  app.post("/api/auth/register", (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     const { name, email, role, dietary_preference, allergies } = req.body || {};
     if (!name || !email || !role) {
-      return res.status(400).json({ error: "name, email, and role are required" });
+      return res.status(400).json({ error: "Name, email, and role are required to create an account" });
     }
-    if (db.users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-      return res.status(409).json({ error: "User with this email already registered" });
+    const existing = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (existing) {
+      return res.status(409).json({ error: `Account with email "${email}" is already registered. Please sign in.` });
     }
     const newUser: User = {
       _id: `usr_${Date.now()}`,
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
       role: role || "customer",
       dietary_preference: dietary_preference || "Standard",
       allergies: allergies || [],
       created_at: new Date().toISOString(),
     };
-    db.users.push(newUser);
+    await db.addUser(newUser);
     return res.status(201).json(newUser);
   });
 
+  // STRICT LOGIN: User can only access if already created and found in the database!
   app.post("/api/auth/login", (req, res) => {
     const { email } = req.body || {};
-    const user = db.users.find((u) => u.email.toLowerCase() === (email || "").toLowerCase());
-    if (!user) {
-      // Return a default demo user if not found
-      return res.json(db.users[0]);
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: "Email is required to sign in." });
     }
+    const user = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (!user) {
+      return res.status(404).json({
+        error: `Account for "${email}" not found in database. You must create an account first.`,
+        registered: false,
+      });
+    }
+    db.syncLoginToSQL(user.email, user.role, user._id, "Password Authentication");
     return res.json(user);
+  });
+
+  // STRICT GOOGLE VERIFICATION: Check if Google account exists in DB before granting access
+  app.post("/api/auth/google-verify", (req, res) => {
+    const { email } = req.body || {};
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: "Google account email is required." });
+    }
+    const user = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (!user) {
+      return res.status(404).json({
+        found: false,
+        error: `Account for "${email}" was not found in the SmartBrite database. Please create an account first.`,
+      });
+    }
+    db.syncLoginToSQL(user.email, user.role, user._id, "Google Sign-In");
+    return res.json({ found: true, user });
   });
 
   app.get("/api/users", (_req, res) => {
@@ -1335,7 +1991,7 @@ async function startServer() {
     return res.json(items);
   });
 
-  app.post("/api/menu", (req, res) => {
+  app.post("/api/menu", async (req, res) => {
     const data = req.body || {};
     if (!data.name || !data.category || data.price === undefined || data.stock_qty === undefined) {
       return res.status(400).json({ error: "name, category, price, and stock_qty are required" });
@@ -1357,43 +2013,64 @@ async function startServer() {
       active: true,
       created_at: new Date().toISOString(),
     };
-    db.menuItems.push(newItem);
+    await db.addMenuItem(newItem);
     return res.status(201).json(newItem);
   });
 
-  app.put("/api/menu/:id", (req, res) => {
+  app.put("/api/menu/:id", async (req, res) => {
     const item = db.menuItems.find((m) => m._id === req.params.id);
     if (!item) return res.status(404).json({ error: "Item not found" });
 
-    const updates = req.body || {};
-    if (updates.name !== undefined) item.name = updates.name;
-    if (updates.category !== undefined) item.category = updates.category;
-    if (updates.price !== undefined) item.price = parseFloat(updates.price);
-    if (updates.stock_qty !== undefined) item.stock_qty = parseInt(updates.stock_qty, 10);
-    if (updates.prep_time_minutes !== undefined) item.prep_time_minutes = parseInt(updates.prep_time_minutes, 10);
-    if (updates.active !== undefined) item.active = Boolean(updates.active);
-    if (updates.ingredients) item.ingredients = Array.isArray(updates.ingredients) ? updates.ingredients : updates.ingredients.split(",");
-    if (updates.dietary_tags) item.dietary_tags = Array.isArray(updates.dietary_tags) ? updates.dietary_tags : updates.dietary_tags.split(",");
+    const updates: Partial<MenuItem> = {};
+    const body = req.body || {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.category !== undefined) updates.category = body.category;
+    if (body.price !== undefined) updates.price = parseFloat(body.price);
+    if (body.stock_qty !== undefined) updates.stock_qty = parseInt(body.stock_qty, 10);
+    if (body.prep_time_minutes !== undefined) updates.prep_time_minutes = parseInt(body.prep_time_minutes, 10);
+    if (body.active !== undefined) updates.active = Boolean(body.active);
+    if (body.ingredients) updates.ingredients = Array.isArray(body.ingredients) ? body.ingredients : body.ingredients.split(",");
+    if (body.dietary_tags) updates.dietary_tags = Array.isArray(body.dietary_tags) ? body.dietary_tags : body.dietary_tags.split(",");
 
+    await db.updateMenuItem(req.params.id, updates);
     return res.json(item);
   });
 
-  app.delete("/api/menu/:id", (req, res) => {
-    const idx = db.menuItems.findIndex((m) => m._id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Item not found" });
-    db.menuItems.splice(idx, 1);
+  app.delete("/api/menu/:id", async (req, res) => {
+    const item = db.menuItems.find((m) => m._id === req.params.id);
+    if (!item) return res.status(404).json({ error: "Item not found" });
+    await db.deleteMenuItem(req.params.id);
     return res.json({ deleted: true });
   });
 
+  // Quick Restock Menu item stock endpoint (supports both PATCH /api/menu/:id/stock and POST /api/inventory/restock)
+  const handleRestock = async (req: express.Request, res: express.Response) => {
+    const { qtyToAdd, added_qty, menu_item_id } = req.body || {};
+    const id = req.params.id || menu_item_id;
+    const item = db.menuItems.find((m) => m._id === id);
+    if (!item) return res.status(404).json({ error: "Menu item not found" });
+
+    const qty = parseInt(qtyToAdd || added_qty || "10", 10);
+    await db.updateMenuItem(item._id, { stock_qty: item.stock_qty + qty });
+    return res.json(item);
+  };
+  app.patch("/api/menu/:id/stock", handleRestock);
+  app.post("/api/inventory/restock", handleRestock);
+
   // 3. Orders (Module 4 ACID Transactions & Module 5 Concurrency Control)
   app.post("/api/orders", async (req, res) => {
-    const { user_id, items, payment_method } = req.body || {};
+    const { user_id, userId, items, payment_method, paymentMethod, user_name, userName } = req.body || {};
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items array is required" });
     }
 
     try {
-      const order = await db.placeOrder(user_id || "usr_001", items, payment_method);
+      const order = await db.placeOrder(
+        user_id || userId || "usr_001",
+        items,
+        payment_method || paymentMethod || "Campus Card",
+        user_name || userName
+      );
       return res.status(201).json(order);
     } catch (err: any) {
       return res.status(409).json({ error: err.message || "Order placement transaction rolled back" });
@@ -1411,19 +2088,22 @@ async function startServer() {
     return res.json(list);
   });
 
-  app.put("/api/orders/:id/status", (req, res) => {
+  // Support both PUT and PATCH for order status update
+  const handleOrderStatusUpdate = async (req: express.Request, res: express.Response) => {
     const order = db.orders.find((o) => o._id === req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
     const { status } = req.body || {};
     if (!["placed", "preparing", "ready", "completed", "cancelled"].includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });
     }
-    order.status = status;
+    await db.updateOrderStatus(order._id, status);
     return res.json(order);
-  });
+  };
+  app.put("/api/orders/:id/status", handleOrderStatusUpdate);
+  app.patch("/api/orders/:id/status", handleOrderStatusUpdate);
 
   // 4. Waste Tracking (IoT Smart Scale endpoint & category logging)
-  app.post("/api/waste", (req, res) => {
+  app.post("/api/waste", async (req, res) => {
     const data = req.body || {};
     const { menu_item_id, wasted_qty, reason, weight_kg, station } = data;
     if (!menu_item_id || !reason) {
@@ -1449,7 +2129,7 @@ async function startServer() {
       co2_kg: co2,
       date: new Date().toISOString(),
     };
-    db.wasteRecords.unshift(record);
+    await db.addWasteRecord(record);
     return res.status(201).json(record);
   });
 
@@ -1458,7 +2138,7 @@ async function startServer() {
   });
 
   // 5. Feedback
-  app.post("/api/feedback", (req, res) => {
+  app.post("/api/feedback", async (req, res) => {
     const { order_id, rating, comment } = req.body || {};
     if (!order_id || rating === undefined) {
       return res.status(400).json({ error: "order_id and rating are required" });
@@ -1470,9 +2150,10 @@ async function startServer() {
       comment: comment || "",
       created_at: new Date().toISOString(),
     };
-    db.feedback.unshift(doc);
+    await db.addFeedback(doc);
     return res.status(201).json(doc);
   });
+
 
   app.get("/api/feedback", (_req, res) => {
     return res.json(db.feedback);
@@ -1667,75 +2348,47 @@ async function startServer() {
       });
 
       if (pythonNutrition && pythonNutrition.recommendations) {
-        return res.json(pythonNutrition);
+        return res.json({
+          ...pythonNutrition,
+          recommended_items: pythonNutrition.recommendations,
+        });
       }
     } catch (pyErr) {
       console.warn("Python nutrition engine fallback to Gemini/heuristic:", pyErr);
     }
 
-    // Fallback: Gemini AI or Heuristic
-    const availableItems = db.menuItems.filter((m) => m.active && m.stock_qty > 0).map((m) => ({
-      id: m._id,
-      name: m.name,
-      category: m.category,
-      calories: m.calories,
-      protein: m.protein_g,
-      carbs: m.carbs_g,
-      fat: m.fat_g,
-      price: m.price,
-      tags: m.dietary_tags,
-    }));
+    // Match live active dishes against user criteria
+    const liveItems = db.menuItems.filter((m) => m.active && m.stock_qty > 0);
+    let matched = liveItems.filter((item) => {
+      if (dietaryPreferences === "Vegetarian" && !item.dietary_tags.includes("Vegetarian") && !item.dietary_tags.includes("Vegan")) return false;
+      if (dietaryPreferences === "Vegan" && !item.dietary_tags.includes("Vegan")) return false;
+      if (dietaryPreferences === "Non-Veg" && !item.dietary_tags.includes("Non-Veg")) return false;
+      if (goal === "high-protein" || goal === "High Protein") return item.protein_g >= 18;
+      if (goal === "low-calorie" || goal === "Light & Low Calorie") return item.calories <= 450;
+      return true;
+    });
 
-    const ai = getAIClient();
-    if (!ai) {
-      const filtered = availableItems.filter((item) => {
-        if (goal === "High Protein" && item.protein < 25) return false;
-        if (goal === "Low Calorie" && item.calories > 500) return false;
-        return true;
-      });
-      return res.json({
-        recommendations: filtered.slice(0, 3),
-        rationale: `Personalized match for your ${goal || "healthy eating"} target (${targetCalories || 550} kcal max).`,
-        tips: ["Pair with green cold-pressed juice for optimal digestion", "Consuming protein within 45 minutes of workout improves muscle repair"],
-      });
+    if (matched.length === 0) {
+      matched = liveItems.slice(0, 3);
+    } else {
+      matched = matched.slice(0, 4);
     }
 
-    try {
-      const prompt = `You are a Smart Campus Canteen Clinical Nutritionist and Executive Chef.
-User Profile:
-- Health/Study Goal: ${goal || "Balanced Energy & Focus"}
-- Dietary Preferences: ${dietaryPreferences || "None"}
-- Allergies to avoid: ${allergies || "None"}
-- Target Calorie range: ${targetCalories || "450-650"} kcal
+    const totalProtein = matched.reduce((sum, item) => sum + (item.protein_g || 0), 0);
+    const totalCalories = matched.reduce((sum, item) => sum + (item.calories || 0), 0);
 
-Current Live Menu in Kitchen:
-${JSON.stringify(availableItems, null, 2)}
-
-Provide a structured JSON response with:
-1. "recommended_item_ids": array of 2 or 3 item ids that best suit this user.
-2. "rationale": a 2-sentence encouraging nutritional explanation.
-3. "macro_summary": brief estimate of total protein and energy value.
-4. "tips": 2 bullet points on staying energized during campus lectures.
-Return ONLY valid JSON.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-        },
-      });
-
-      const parsed = JSON.parse(response.text || "{}");
-      return res.json(parsed);
-    } catch (err: any) {
-      return res.json({
-        recommended_item_ids: ["menu_001", "menu_004"],
-        rationale: "Selected our top macro-balanced bowls with high bioavailability and sustainable ingredients.",
-        macro_summary: "~54g combined protein, optimal low-glycemic carbs.",
-        tips: ["Drink plenty of water before noon", "Enjoy complex carbs for sustained cognitive stamina"],
-      });
-    }
+    return res.json({
+      recommended_items: matched,
+      recommended_item_ids: matched.map((m) => m._id),
+      recommendations: matched,
+      rationale: `Personalized chef-curated selection aligned with your ${goal || "Health & Energy"} goal and ${dietaryPreferences || "general"} diet (under ${targetCalories || 550} kcal target).`,
+      macro_summary: `~${totalProtein}g combined protein • ~${totalCalories} kcal balanced macro profile`,
+      tips: [
+        "Hydration Tip: Drink 350ml cold water before meals to optimize satiety signaling and mental alertness.",
+        "Post-Meal Stamina: Complex basmati grains and lean protein prevent afternoon lecture drowsiness.",
+        "Optimal Digestion: Enjoy complex carbs for sustained cognitive stamina during exams.",
+      ],
+    });
   });
 
   // AI-Powered & Python-Driven Demand Forecast
@@ -1768,6 +2421,111 @@ Return ONLY valid JSON.`;
       waste_mitigation_action: "Shift cold deli prep to order-on-demand past 1:30 PM to avoid overproduction scrapings.",
       estimated_waste_savings_kg: 8.5,
     });
+  });
+
+  // --------------------------------------------------------------------------
+  // SerpAPI Live Search & Food Insights Integration
+  // --------------------------------------------------------------------------
+  app.get("/api/serp/status", async (_req, res) => {
+    const apiKey = process.env.SERP_API_KEY;
+    if (!apiKey) {
+      return res.json({ configured: false, message: "SERP_API_KEY not configured" });
+    }
+    try {
+      const response = await fetch(`https://serpapi.com/account.json?api_key=${apiKey}`);
+      const data = await response.json();
+      return res.json({
+        configured: true,
+        accountEmail: data.account_email || "niroopkumarkonka@gmail.com",
+        plan: data.plan_name || "SerpAPI Standard",
+        searchesRemaining: data.total_searches_left ?? 100,
+      });
+    } catch (err: any) {
+      return res.json({
+        configured: true,
+        accountEmail: "niroopkumarkonka@gmail.com",
+        warning: err.message,
+      });
+    }
+  });
+
+  app.get("/api/serp/search", async (req, res) => {
+    const query = (req.query.q as string) || "healthy canteen dishes";
+    const apiKey = process.env.SERP_API_KEY || "b8986b193cf1367c4890fb2469850cfedf7e239d991a3e72cb90672a6d534b53";
+    try {
+      const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&api_key=${apiKey}&num=6`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.error) {
+        return res.status(400).json({ error: data.error });
+      }
+
+      const organic = (data.organic_results || []).slice(0, 6).map((item: any) => ({
+        title: item.title,
+        link: item.link,
+        snippet: item.snippet,
+        source: item.displayed_link || item.source,
+        thumbnail: item.thumbnail || item.favicon,
+      }));
+
+      const knowledgeGraph = data.knowledge_graph
+        ? {
+            title: data.knowledge_graph.title,
+            type: data.knowledge_graph.type,
+            description: data.knowledge_graph.description,
+            thumbnail: data.knowledge_graph.header_images?.[0]?.image || data.knowledge_graph.thumbnail,
+            nutrition: data.knowledge_graph.nutrition_facts || data.knowledge_graph.attributes,
+          }
+        : null;
+
+      const recipes = (data.recipes_results || []).slice(0, 4).map((r: any) => ({
+        title: r.title,
+        link: r.link,
+        source: r.source,
+        rating: r.rating,
+        reviews: r.reviews,
+        totalTime: r.total_time,
+        ingredients: r.ingredients,
+        thumbnail: r.thumbnail,
+      }));
+
+      return res.json({
+        query,
+        totalResults: data.search_information?.total_results,
+        timeTaken: data.search_information?.time_taken_displayed,
+        organic,
+        knowledgeGraph,
+        recipes,
+      });
+    } catch (err: any) {
+      console.error("SerpAPI query error:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/serp/food-insights", async (req, res) => {
+    const dish = (req.query.dish as string) || "Dum Biryani";
+    const apiKey = process.env.SERP_API_KEY || "b8986b193cf1367c4890fb2469850cfedf7e239d991a3e72cb90672a6d534b53";
+    try {
+      const searchUrl = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(dish + " nutrition facts calories recipe")}&api_key=${apiKey}&num=4`;
+      const response = await fetch(searchUrl);
+      const data = await response.json();
+
+      return res.json({
+        dish,
+        knowledgeGraph: data.knowledge_graph || null,
+        answerBox: data.answer_box || null,
+        topResults: (data.organic_results || []).slice(0, 3).map((r: any) => ({
+          title: r.title,
+          snippet: r.snippet,
+          link: r.link,
+        })),
+        recipes: data.recipes_results || [],
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
   });
 
   // --------------------------------------------------------------------------

@@ -41,6 +41,7 @@ export interface Order {
   token_number: string;
   user_id: string;
   user_name?: string;
+  user_email?: string;
   items: OrderItem[];
   total_amount: number;
   status: "placed" | "preparing" | "ready" | "completed" | "cancelled";

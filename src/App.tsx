@@ -13,6 +13,7 @@ import { AINutritionistModal } from "./components/AINutritionistModal";
 import { AuthModal } from "./components/AuthModal";
 import { LoginPage } from "./components/LoginPage";
 import { Footer } from "./components/Footer";
+import { SmartBrite3DLogo } from "./components/ui/SmartBrite3DLogo";
 import "./App.css";
 import "./motion-overrides.css";
 import {
@@ -50,6 +51,7 @@ export default function App() {
     return "customer";
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [show3DSplash, setShow3DSplash] = useState<boolean>(true);
 
   // App data
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -146,6 +148,7 @@ export default function App() {
     }
     setCurrentUser(null);
     setUserRole("customer");
+    setShow3DSplash(true);
     setActiveTab("kiosk");
   };
 
@@ -264,14 +267,28 @@ export default function App() {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.qty, 0);
 
-  // USER MANDATE: Login with Google / Sign In MUST come at the starting
-  // before entering into the website or accessing anything properly.
+  // USER MANDATE: The starting login page should come as first 3D Animated logo SmartBrite and display the login page redirecting
+  if (show3DSplash) {
+    return (
+      <SmartBrite3DLogo
+        size="splash"
+        onCompleteSplash={() => setShow3DSplash(false)}
+        showRedirectBanner={true}
+      />
+    );
+  }
+
   if (!currentUser) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        onReplay3DLogo={() => setShow3DSplash(true)}
+      />
+    );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-[#faf8f5] dark:bg-[#12100e] text-stone-900 dark:text-stone-100 flex flex-col selection:bg-amber-500 selection:text-white transition-colors duration-500">
       {/* Interactive Modern Hero Showcase (starts at scroll y=0) */}
       {activeTab === "kiosk" && (
         <SmoothScrollHero
@@ -282,6 +299,7 @@ export default function App() {
           onOpenKitchen={() => setActiveTab("kitchen")}
           onOpenAnalytics={() => setActiveTab("admin")}
           onOpenNutrition={() => setIsAINutritionOpen(true)}
+          onLogout={handleLogout}
         />
       )}
 
@@ -352,6 +370,7 @@ export default function App() {
                 wasteRecords={wasteRecords}
                 onRestockItem={handleRestockItem}
                 onRefreshAnalytics={fetchData}
+                onUpdateOrderStatus={handleUpdateOrderStatus}
               />
             )}
 

@@ -22,12 +22,16 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { User } from "../types";
+import { GoogleAccountChooserModal } from "./GoogleAccountChooserModal";
+import { SmartBrite3DLogo } from "./ui/SmartBrite3DLogo";
+import { ThemeToggle } from "./ui/ThemeToggle";
 
 interface LoginPageProps {
   onLoginSuccess: (user: User) => void;
+  onReplay3DLogo?: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onReplay3DLogo }) => {
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<"signin" | "signup" | "admin">("signin");
 
@@ -55,6 +59,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isGoogleChooserOpen, setIsGoogleChooserOpen] = useState(false);
 
   // Mouse Parallax Effect for ambient depth
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -71,38 +76,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
-  // 1. Google 1-Click Sign-In
+  // 1. Google Account Chooser Sign-In
   const handleGoogleLogin = () => {
-    setIsLoading(true);
     setErrorMsg(null);
-    setTimeout(() => {
-      let assignedRole = signInRole;
-      if (signInRole === "admin") {
-        if (signInEmail.trim().toLowerCase() !== "niroopkumarkonka@gmail.com") {
-          setErrorMsg("Access Denied: Only niroopkumarkonka@gmail.com can log in as Admin.");
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      const userEmail = signInEmail.trim() || (assignedRole === "admin" ? "niroopkumarkonka@gmail.com" : "student@campus.edu");
-      const user: User = {
-        _id: `google_user_${Date.now()}`,
-        name: assignedRole === "admin" ? "Niroop Kumar Konka" : "Campus Diner",
-        email: userEmail,
-        role: assignedRole,
-        student_id: assignedRole === "customer" ? "CS-2026-884" : undefined,
-        avatar_url:
-          assignedRole === "admin"
-            ? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=140&q=80"
-            : assignedRole === "staff"
-            ? "https://images.unsplash.com/photo-1577219491135-ce391730fb2c?auto=format&fit=crop&w=140&q=80"
-            : "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=140&q=80",
-        created_at: new Date().toISOString(),
-      };
-      setIsLoading(false);
-      onLoginSuccess(user);
-    }, 500);
+    setIsGoogleChooserOpen(true);
   };
 
   // 2. Standard Email & Password Sign In
@@ -166,7 +143,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   // 3. User Sign Up / Registration
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -192,30 +169,44 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const isRegisteredAdmin =
-        signUpEmail.trim().toLowerCase() === "niroopkumarkonka@gmail.com" &&
-        signUpPassword === "Nani@3012";
+    const isRegisteredAdmin =
+      signUpEmail.trim().toLowerCase() === "niroopkumarkonka@gmail.com" &&
+      signUpPassword === "Nani@3012";
 
-      const newUser: User = {
-        _id: `reg_user_${Date.now()}`,
-        name: signUpName.trim(),
-        email: signUpEmail.trim().toLowerCase(),
-        role: isRegisteredAdmin ? "admin" : signUpRole,
-        student_id: signUpStudentId.trim() || undefined,
-        dietary_preference: signUpDiet,
-        avatar_url:
-          isRegisteredAdmin
-            ? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=140&q=80"
-            : signUpRole === "staff"
-            ? "https://images.unsplash.com/photo-1577219491135-ce391730fb2c?auto=format&fit=crop&w=140&q=80"
-            : "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=140&q=80",
-        created_at: new Date().toISOString(),
-      };
+    const newUser: User = {
+      _id: `reg_user_${Date.now()}`,
+      name: signUpName.trim(),
+      email: signUpEmail.trim().toLowerCase(),
+      role: isRegisteredAdmin ? "admin" : signUpRole,
+      student_id: signUpStudentId.trim() || undefined,
+      dietary_preference: signUpDiet,
+      avatar_url:
+        isRegisteredAdmin
+          ? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=140&q=80"
+          : signUpRole === "staff"
+          ? "https://images.unsplash.com/photo-1577219491135-ce391730fb2c?auto=format&fit=crop&w=140&q=80"
+          : "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=140&q=80",
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      // Automatically store user details in database (MongoDB Atlas & SQL file)
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
+      });
+
+      const savedUser = res.ok ? await res.json() : newUser;
+      setIsLoading(false);
+      setSuccessMsg("Account created and saved to database! Redirecting to campus dining...");
+      setTimeout(() => onLoginSuccess(savedUser), 400);
+    } catch (err: any) {
+      console.error("Auto-store user error:", err);
       setIsLoading(false);
       setSuccessMsg("Account created! Redirecting to campus dining...");
-      setTimeout(() => onLoginSuccess(newUser), 300);
-    }, 500);
+      setTimeout(() => onLoginSuccess(newUser), 400);
+    }
   };
 
   // 4. Dedicated Administrator Vault Login
@@ -491,6 +482,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           >
             <div className="rounded-3xl border border-white/15 bg-black/70 p-6 sm:p-8 shadow-2xl backdrop-blur-2xl space-y-5">
               
+              {/* Artisan Coffee Cup Logo Header & Theme Toggle */}
+              <div className="flex flex-col items-center justify-center pt-1 pb-3 text-center border-b border-white/10">
+                <SmartBrite3DLogo size="md" />
+                <div className="flex flex-wrap items-center justify-center gap-2.5 mt-3">
+                  {onReplay3DLogo && (
+                    <button
+                      type="button"
+                      onClick={onReplay3DLogo}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-amber-400/40 bg-amber-500/10 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/20 hover:border-amber-400 transition cursor-pointer"
+                    >
+                      <Coffee className="h-3 w-3 text-amber-400" />
+                      <span>Replay Welcome Cafe Screen</span>
+                    </button>
+                  )}
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-white/5">
+                    <span className="text-[10px] text-stone-300 font-medium">Theme:</span>
+                    <ThemeToggle className="scale-75 p-1" />
+                  </div>
+                </div>
+              </div>
+
               {/* Card Header & Switcher */}
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
                 <div>
@@ -618,11 +630,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   </div>
 
                   {/* Google Login Option */}
+                  {/* Google Login Option with Crystal Clear High Contrast */}
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
                     disabled={isLoading}
-                    className="w-full flex items-center justify-center gap-3 rounded-2xl bg-white hover:bg-zinc-100 py-3 px-4 font-semibold text-zinc-900 transition shadow-lg cursor-pointer disabled:opacity-60"
+                    className="w-full flex items-center justify-center gap-3 rounded-2xl bg-white hover:bg-slate-100 py-3.5 px-4 font-extrabold text-slate-900 border-2 border-slate-300 transition shadow-md cursor-pointer disabled:opacity-60"
                   >
                     <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
                       <path
@@ -642,7 +655,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                         d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                       />
                     </svg>
-                    <span>{isLoading ? "Signing in..." : "Continue with Google"}</span>
+                    <span className="text-slate-900 font-extrabold text-sm tracking-wide">
+                      {isLoading ? "Verifying Account with Database..." : "Sign in with Google"}
+                    </span>
                   </button>
 
                   <div className="relative flex items-center justify-center">
@@ -969,6 +984,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </div>
         </div>
       </footer>
+
+      {/* Google Account Chooser Modal with Database Verification */}
+      <GoogleAccountChooserModal
+        isOpen={isGoogleChooserOpen}
+        onClose={() => setIsGoogleChooserOpen(false)}
+        onSelectAccount={onLoginSuccess}
+        onRequestRegister={(email, name) => {
+          setActiveTab("signup");
+          if (email) setSignUpEmail(email);
+          if (name) setSignUpName(name);
+          setErrorMsg(`Please register your account for "${email}" first. Access is strictly granted to accounts in the database.`);
+        }}
+      />
     </div>
   );
 };
