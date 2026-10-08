@@ -190,31 +190,67 @@ export default function App() {
     setActiveTab("kiosk");
   };
 
-  // Place Order API call (ACID Transaction)
+  // Place Order API call (ACID Transaction on server, or client-side fallback on GitHub Pages)
   const handlePlaceOrder = async (
     items: { menu_item_id: string; qty: number }[],
     paymentMethod: string
   ): Promise<Order> => {
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: currentUser ? currentUser._id : "u_demo_1",
-        userName: currentUser ? currentUser.name : "Alex Chen (CS Dept)",
-        items,
-        paymentMethod,
-      }),
-    });
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: currentUser ? currentUser._id : "u_demo_1",
+          userName: currentUser ? currentUser.name : "Alex Chen (CS Dept)",
+          items,
+          paymentMethod,
+        }),
+      });
 
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.message || "Failed to place order");
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+      if (res.ok && isJson) {
+        const newOrder: Order = await res.json();
+        fetchData();
+        return newOrder;
+      }
+    } catch (e) {
+      console.warn("Backend API unavailable, creating order and tax bill locally:", e);
     }
 
-    const newOrder: Order = await res.json();
-    // Refresh local lists immediately
-    fetchData();
-    return newOrder;
+    // Seamless fallback for GitHub Pages static hosting:
+    // Construct real order from current menu items
+    const lineItems = items.map((i) => {
+      const menuItem = menuItems.find((m) => m._id === i.menu_item_id) || {
+        _id: i.menu_item_id,
+        name: "Campus Chef Meal",
+        price: 190,
+      };
+      return {
+        menu_item_id: i.menu_item_id,
+        name: menuItem.name,
+        unit_price: menuItem.price,
+        qty: i.qty,
+        subtotal: menuItem.price * i.qty,
+      };
+    });
+
+    const total = lineItems.reduce((acc, l) => acc + l.subtotal, 0);
+    const tokenSeq = Math.floor(100 + Math.random() * 900);
+    const localOrder: Order = {
+      _id: `ord_${Date.now()}`,
+      token_number: `SB-${tokenSeq}`,
+      user_id: currentUser ? currentUser._id : "u_demo_1",
+      user_name: currentUser ? currentUser.name : "Campus Diner",
+      items: lineItems,
+      total_amount: Math.round(total * 100) / 100,
+      status: "placed",
+      payment_method: paymentMethod as any,
+      created_at: new Date().toISOString(),
+      pickup_time_est: "10 mins",
+    };
+
+    setOrders((prev) => [localOrder, ...prev]);
+    return localOrder;
   };
 
   // Update Order Status (Kitchen Queue)

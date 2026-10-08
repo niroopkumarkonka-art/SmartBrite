@@ -745,7 +745,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                 <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
                   <p className="font-semibold flex items-center space-x-1">
                     <AlertTriangle className="h-4 w-4 text-red-600" />
-                    <span>Item Sold Out</span>
+                    <span>Order Notice</span>
                   </p>
                   <p className="mt-1">{orderError}</p>
                 </div>
