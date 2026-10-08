@@ -29,6 +29,13 @@ import {
   Feedback,
   User,
 } from "./types";
+import {
+  FALLBACK_MENU_ITEMS,
+  FALLBACK_ORDERS,
+  FALLBACK_SUMMARY,
+  FALLBACK_DEMAND,
+  FALLBACK_WASTE,
+} from "./data/fallbackData";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"kiosk" | "kitchen" | "admin">("kiosk");
@@ -92,16 +99,47 @@ export default function App() {
         fetch("/api/analytics/revenue"),
       ]);
 
-      if (menuRes.ok) setMenuItems(await menuRes.json());
-      if (ordersRes.ok) setOrders(await ordersRes.json());
+      if (menuRes.ok) {
+        setMenuItems(await menuRes.json());
+      } else {
+        setMenuItems(FALLBACK_MENU_ITEMS);
+      }
+
+      if (ordersRes.ok) {
+        setOrders(await ordersRes.json());
+      } else {
+        setOrders(FALLBACK_ORDERS);
+      }
+
       if (wasteRes.ok) setWasteRecords(await wasteRes.json());
       if (invRes.ok) setInventory(await invRes.json());
-      if (summaryRes.ok) setSummary(await summaryRes.json());
-      if (demandRes.ok) setDemandData(await demandRes.json());
-      if (wasteAggRes.ok) setWasteData(await wasteAggRes.json());
+
+      if (summaryRes.ok) {
+        setSummary(await summaryRes.json());
+      } else {
+        setSummary(FALLBACK_SUMMARY);
+      }
+
+      if (demandRes.ok) {
+        setDemandData(await demandRes.json());
+      } else {
+        setDemandData(FALLBACK_DEMAND);
+      }
+
+      if (wasteAggRes.ok) {
+        setWasteData(await wasteAggRes.json());
+      } else {
+        setWasteData(FALLBACK_WASTE);
+      }
+
       if (revRes.ok) setRevenueData(await revRes.json());
     } catch (err) {
-      console.error("Error fetching canteen data:", err);
+      console.warn("Using fallback campus dataset for static deployment:", err);
+      setMenuItems(FALLBACK_MENU_ITEMS);
+      setOrders(FALLBACK_ORDERS);
+      setSummary(FALLBACK_SUMMARY);
+      setDemandData(FALLBACK_DEMAND);
+      setWasteData(FALLBACK_WASTE);
     } finally {
       setIsLoading(false);
     }
